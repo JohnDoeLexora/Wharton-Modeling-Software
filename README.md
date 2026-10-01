@@ -45,8 +45,8 @@ This repository does not claim an accuracy number for the model. See the paper a
 The download is large (PyTorch plus the weights). Skip it if you only want the portfolio tools. The Research tab still offers a **demo lexicon**, which is a word list in the browser and is labeled as not FinBERT.
 
 ```bash
-python scripts/setup_finbert.py
-python services/finbert/server.py
+python3 scripts/setup_finbert.py   # creates .venv, installs CPU torch + transformers, caches weights
+.venv/bin/python services/finbert/server.py
 ```
 
 The service listens on `http://127.0.0.1:8765`. In dev, the Vite app proxies `/finbert` to that port. `GET /health` reports whether the packages and the cached weights are present. The server will not download the model by itself.
