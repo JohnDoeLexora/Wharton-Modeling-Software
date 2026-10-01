@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.DS_Store
+*.local
+__pycache__/
+.venv/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+services/finbert/.cache/
+*.tsbuildinfo
+.vite/
