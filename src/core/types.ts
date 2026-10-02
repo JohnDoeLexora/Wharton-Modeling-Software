@@ -3,9 +3,15 @@
  * Nothing in these types is a recommended strategy.
  */
 
+import type { CorrelationReport } from "./correlation";
+import type { StreamManifest } from "./rng";
+
 export type ScenarioName = "base" | "bull" | "bear";
 
 export type ReturnModel = "lognormal" | "normal";
+
+/** Parametric Gaussian-copula shocks, or a circular block resample of rows the team types. */
+export type ShockModel = "parametric" | "block_bootstrap";
 
 export type RebalanceMode = "annual" | "drift";
 
@@ -80,16 +86,32 @@ export interface FacilityParams {
 }
 
 export interface Assumptions {
-  schema: 1;
+  /** Version of this object. Migration in `migrate.ts` brings older snapshots forward. */
+  schemaVersion: 2;
+  /** Kept equal to schemaVersion so a reader looking for the v1 field name still sees a version. */
+  schema: 2;
   tag: AssumptionTag;
   /** Team-written definition. Starts empty. The case does not supply one. */
   certaintyNote: string;
   sleeves: Sleeve[];
   glide: GlideKnot[];
-  /** Row-major correlation of Monte Carlo shocks. Gaussian copula. */
+  /** Row-major correlation of Monte Carlo shocks. Gaussian copula. Ignored by block bootstrap. */
   correlation: number[][];
+  /**
+   * Added to every off-diagonal correlation, then clipped to ±0.999.
+   * Zero leaves the typed matrix unchanged. A non-PSD result is repaired and flagged.
+   */
+  correlationStress: number;
   rebalance: RebalanceMode;
   returnModel: ReturnModel;
+  shockModel: ShockModel;
+  /**
+   * Historical simple returns, one row per period, one column per sleeve, in sleeve order.
+   * Used only when shockModel is block_bootstrap. Empty under the parametric model.
+   */
+  bootstrapHistory: number[][];
+  /** Circular block length in rows. 1 resamples single periods. */
+  blockLength: number;
   /** Floor on simple returns when returnModel is "normal". */
   normalFloor: number;
   /** Optional purchasing-power deflator. Does not change the nominal $50,000 liability. */
@@ -132,6 +154,23 @@ export interface ReserveYearRow {
   fundedRatio: number | null;
 }
 
+export interface PathwiseExample {
+  trial: number;
+  /** Immunizing reserve on that reserve-stream path, or beginning-of-2033 wealth for the portfolio ratio. */
+  requirement: number;
+  /** Sized reserve / path requirement. Above 1 means the sized reserve covers the path. */
+  fundedRatio: number | null;
+}
+
+/** Distribution of sizedReserve / pathImmunizingReserve on stream 2. A ratio, not a promise. */
+export interface PathwiseFundedRatio {
+  percentiles: Record<string, number>;
+  /** Share of finite paths with funded ratio >= 1. Same count as achievedProbability when both exist. */
+  shareCovered: number;
+  examples: PathwiseExample[];
+  formula: string;
+}
+
 export interface ReserveSizing {
   method: ReserveMethod;
   reserve: number | null;
@@ -140,6 +179,8 @@ export interface ReserveSizing {
   macaulayDuration: number | null;
   modifiedDuration: number | null;
   message: string;
+  /** Present only for the shortfall method, which is the method with a sample of paths. */
+  pathwiseFundedRatio: PathwiseFundedRatio | null;
 }
 
 export interface RuleApplication {
@@ -185,13 +226,28 @@ export interface ResearchNote {
   scores: { positive: number; negative: number; neutral: number };
 }
 
+export interface PortfolioFundedRatio {
+  percentiles: Record<string, number>;
+  /** Share of trials with beginning-of-2033 wealth at least the reserve target. */
+  shareCovered: number;
+  formula: string;
+}
+
 export interface ModelOutput {
   disclaimer: string;
   errors: string[];
+  schemaVersion: 2;
+  /** Normalized master seed. Stream ids are documented on `streams`. */
+  masterSeed: number;
+  streams: StreamManifest;
+  correlation: CorrelationReport;
+  shockModel: ShockModel;
   scenarios: Partial<Record<ScenarioName, YearPoint[]>>;
   monteCarlo: {
     trials: number;
     seed: number;
+    /** Name of the draw. Portfolio uses stream 1. See `streams` on the output. */
+    formula: string;
     byYear: { calendarYear: number; values: Record<string, number> }[];
     wealth2031: number[];
     wealth2033: number[];
@@ -212,5 +268,7 @@ export interface ModelOutput {
     contributionSamples: number[];
     conditionalAnchor: number | null;
     conditionalAnchorLabel: string;
+    /** Wealth_2033 / reserve target, one ratio per portfolio trial (stream 1). Null when the reserve is not a positive finite number. */
+    portfolioFundedRatio: PortfolioFundedRatio | null;
   } | null;
 }

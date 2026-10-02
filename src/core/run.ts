@@ -1,13 +1,16 @@
 import { COMMUNICATION_YEAR, DECISION_YEAR, DISCLAIMER, OPERATING_PAYMENTS } from "./case";
+import { prepareCorrelation } from "./correlation";
 import { applyRule, contributionsOf, percentileBand, scenarioEnvelope } from "./facility";
 import { weightsAtYear, weightsSumToOne } from "./glide";
-import { boxMuller, cholesky, correlatedShocks, mulberry32, normalizeSeed, percentile, percentiles, simpleReturn } from "./math";
-import { projectPath, wealthInYear } from "./project";
+import { normalizeSeed, percentile, percentiles } from "./math";
+import { mcSleeveReturns, projectPath, wealthInYear } from "./project";
 import { rollReserve, scheduleReturnsFor, sizeReserve, sizingRate } from "./reserve";
+import { STREAM, streamManifest } from "./rng";
 import type {
   Assumptions,
   FacilityParams,
   ModelOutput,
+  PortfolioFundedRatio,
   RangeCard,
   ReserveMethod,
   ReserveSizing,
@@ -66,8 +69,36 @@ export function validate(assumptions: Assumptions): string[] {
   }
   const square =
     assumptions.correlation.length === n && assumptions.correlation.every((row) => row?.length === n);
-  if (square && n > 0 && cholesky(assumptions.correlation) === null) {
-    errors.push("The correlation matrix is not positive semidefinite, so correlated draws cannot be built.");
+  if (!Number.isFinite(assumptions.correlationStress)) {
+    errors.push("Correlation stress must be a finite number.");
+  } else if (square && n > 0) {
+    const report = prepareCorrelation(assumptions.correlation, assumptions.correlationStress);
+    if (report.factor === null) {
+      errors.push(report.warning ?? "The correlation matrix could not be factored.");
+    }
+  }
+  if (assumptions.shockModel !== "parametric" && assumptions.shockModel !== "block_bootstrap") {
+    errors.push("The shock model must be parametric or block bootstrap.");
+  }
+  if (!Number.isInteger(assumptions.blockLength) || assumptions.blockLength < 1) {
+    errors.push("Block length must be a whole number of at least 1.");
+  }
+  if (assumptions.shockModel === "block_bootstrap") {
+    if (assumptions.bootstrapHistory.length < 1) {
+      errors.push("Block bootstrap needs at least one row of historical sleeve returns.");
+    } else if (assumptions.blockLength > assumptions.bootstrapHistory.length) {
+      errors.push("Block length cannot exceed the number of historical rows.");
+    }
+    assumptions.bootstrapHistory.forEach((row, index) => {
+      if (!Array.isArray(row) || row.length !== n) {
+        errors.push(`Bootstrap row ${index + 1} must have one return per sleeve.`);
+        return;
+      }
+      row.forEach((value, sleeve) => {
+        if (!Number.isFinite(value)) errors.push(`Bootstrap row ${index + 1}, sleeve ${sleeve + 1} is not a finite number.`);
+        else if (value <= -1) errors.push(`Bootstrap row ${index + 1}, sleeve ${sleeve + 1} must be above −100%.`);
+      });
+    });
   }
   const reserveNumbers: [string, number][] = [
     ["Discount yield", assumptions.reserve.discountYield],
@@ -115,15 +146,32 @@ export function validate(assumptions: Assumptions): string[] {
 function sampleSettings(assumptions: Assumptions) {
   return {
     trials: assumptions.trials,
-    seed: normalizeSeed(assumptions.seed) + 917,
+    seed: normalizeSeed(assumptions.seed),
     returnModel: assumptions.returnModel,
     normalFloor: assumptions.normalFloor,
+    percentiles: assumptions.percentiles,
   };
 }
+
+const MC_FORMULA_PARAMETRIC =
+  "Parametric z at (master seed, stream 1, trial, calendar year, sleeve). Shocks are Lz, L the Cholesky factor of the stressed correlation. " +
+  "Lognormal sets E[1+r] = 1+μ and Var(1+r) = σ². Normal uses max(floor, μ + σ z).";
+
+const MC_FORMULA_BOOTSTRAP =
+  "Circular block bootstrap on stream 3. A uniform at (master seed, stream 3, trial, block index, 0) picks the block start. " +
+  "μ, σ, and the Gaussian copula are not used on these paths. Bear, base, and bull paths still use the scenario returns.";
 
 export function runModel(assumptions: Assumptions): ModelOutput {
   const errors = validate(assumptions);
   const sample = sampleSettings(assumptions);
+  const masterSeed = sample.seed;
+  const correlation = prepareCorrelation(
+    assumptions.correlation,
+    Number.isFinite(assumptions.correlationStress) ? assumptions.correlationStress : 0,
+  );
+  const streams = streamManifest(masterSeed);
+  const shockModel: Assumptions["shockModel"] =
+    assumptions.shockModel === "block_bootstrap" ? "block_bootstrap" : "parametric";
   const sizings = Object.fromEntries(
     METHODS.map((method) => [method, sizeReserve(method, assumptions.reserve, sample)]),
   ) as Record<ReserveMethod, ReserveSizing>;
@@ -143,11 +191,19 @@ export function runModel(assumptions: Assumptions): ModelOutput {
     : "The schedule reinvests at the single rate used to illustrate this method (the discount yield, the stress return, or the shortfall mean).";
 
   const reserveBlock = { sizings, active, scheduleReturns, schedule, scheduleNote };
+  const identity = {
+    schemaVersion: 2 as const,
+    masterSeed,
+    streams,
+    correlation,
+    shockModel,
+  };
 
   if (errors.length > 0) {
     return {
       disclaimer: DISCLAIMER,
       errors,
+      ...identity,
       scenarios: {},
       monteCarlo: null,
       reserve: reserveBlock,
@@ -155,44 +211,61 @@ export function runModel(assumptions: Assumptions): ModelOutput {
     };
   }
 
-  const factor = cholesky(assumptions.correlation);
+  const pathBase = {
+    sleeves: assumptions.sleeves,
+    glide: assumptions.glide,
+    rebalance: assumptions.rebalance,
+    inflation: assumptions.inflation,
+    returnModel: assumptions.returnModel,
+    normalFloor: assumptions.normalFloor,
+    shockModel,
+    bootstrapHistory: assumptions.bootstrapHistory,
+    blockLength: assumptions.blockLength,
+    correlationStress: assumptions.correlationStress,
+    correlation: assumptions.correlation,
+    seed: masterSeed,
+    factor: correlation.factor,
+  };
   const scenarioPaths: Partial<Record<ScenarioName, YearPoint[]>> = {};
   for (const scenario of SCENARIOS) {
     scenarioPaths[scenario] = projectPath({
-      sleeves: assumptions.sleeves,
-      glide: assumptions.glide,
-      rebalance: assumptions.rebalance,
-      inflation: assumptions.inflation,
+      ...pathBase,
       mode: "scenario",
       scenario,
-      returnModel: assumptions.returnModel,
-      normalFloor: assumptions.normalFloor,
+      trial: 0,
     });
   }
 
-  const randn = boxMuller(mulberry32(normalizeSeed(assumptions.seed)));
   const wealth2031: number[] = [];
   const wealth2033: number[] = [];
   const columns = new Map<number, number[]>();
+  let nonFinite = false;
   for (let trial = 0; trial < assumptions.trials; trial++) {
     const path = projectPath({
-      sleeves: assumptions.sleeves,
-      glide: assumptions.glide,
-      rebalance: assumptions.rebalance,
-      inflation: assumptions.inflation,
+      ...pathBase,
       mode: "mc",
-      randn,
-      cholesky: factor,
-      returnModel: assumptions.returnModel,
-      normalFloor: assumptions.normalFloor,
+      trial,
     });
     for (const point of path) {
+      if (!Number.isFinite(point.wealthStart)) nonFinite = true;
       const column = columns.get(point.calendarYear) ?? [];
       column.push(point.wealthStart);
       columns.set(point.calendarYear, column);
     }
     wealth2031.push(wealthInYear(path, COMMUNICATION_YEAR));
     wealth2033.push(wealthInYear(path, DECISION_YEAR));
+  }
+
+  if (nonFinite) {
+    return {
+      disclaimer: DISCLAIMER,
+      errors: ["A projected wealth was not a finite number. The portfolio sample was discarded."],
+      ...identity,
+      scenarios: scenarioPaths,
+      monteCarlo: null,
+      reserve: reserveBlock,
+      facility: null,
+    };
   }
 
   const byYear = [...columns.entries()]
@@ -207,10 +280,12 @@ export function runModel(assumptions: Assumptions): ModelOutput {
   return {
     disclaimer: DISCLAIMER,
     errors: [],
+    ...identity,
     scenarios: scenarioPaths,
     monteCarlo: {
       trials: assumptions.trials,
-      seed: normalizeSeed(assumptions.seed),
+      seed: masterSeed,
+      formula: shockModel === "block_bootstrap" ? MC_FORMULA_BOOTSTRAP : MC_FORMULA_PARAMETRIC,
       byYear,
       wealth2031,
       wealth2033,
@@ -257,6 +332,7 @@ function buildFacility(
       contributionSamples: [],
       conditionalAnchor: null,
       conditionalAnchorLabel: "Unavailable until the reserve and the portfolio assumptions are valid.",
+      portfolioFundedRatio: null,
     };
   }
 
@@ -298,7 +374,7 @@ function buildFacility(
       highPercentile: assumptions.facility.rangeHighPercentile,
       reserveTarget: target.value,
       ruleName: activeRule.name,
-      context: `The band uses ${assumptions.trials.toLocaleString("en-US")} full-horizon draws from 2027, seed ${normalizeSeed(assumptions.seed)}, and beginning-of-2033 wealth after the case contributions only. WInS trading results are not included.`,
+      context: `The band uses ${assumptions.trials.toLocaleString("en-US")} full-horizon draws from 2027 on portfolio stream ${STREAM.portfolio}, master seed ${normalizeSeed(assumptions.seed)}, and beginning-of-2033 wealth after the case contributions only. WInS trading results are not included.`,
     }),
     percentileBand({
       method: "conditional_mc",
@@ -311,7 +387,7 @@ function buildFacility(
       context:
         anchor.value === null
           ? "No 2031 anchor is available."
-          : `Conditional on ${anchor.label} ($${Math.round(anchor.value).toLocaleString("en-US")} at the beginning of 2031). The next two years, 2031 and 2032, are resimulated with seed ${normalizeSeed(assumptions.seed) + 7}. Wealth is invested at the 2031 glide weights, then your rebalance setting applies. This is the communication problem as it would look in 2031, not the view from 2026.`,
+          : `Conditional on ${anchor.label} ($${Math.round(anchor.value).toLocaleString("en-US")} at the beginning of 2031). Years 2031 and 2032 reuse portfolio stream ${STREAM.portfolio} at those calendar years and the same trial index as the full-horizon sample, master seed ${normalizeSeed(assumptions.seed)}. This is not a separate seed. Wealth restarts at the anchor and at the 2031 policy weights, then the rebalance setting applies. Drifted balances from before 2031 are not carried in. With annual rebalancing, a trial started from its own 2031 wealth lands on its own 2033 wealth. This is the communication problem as it would look in 2031, not the view from 2026.`,
     }),
   ];
 
@@ -325,6 +401,22 @@ function buildFacility(
     contributionSamples: exAnte.contributions,
     conditionalAnchor: anchor.value,
     conditionalAnchorLabel: anchor.label,
+    portfolioFundedRatio: fundedRatioOfPortfolio(wealth2033, target.value, assumptions.percentiles),
+  };
+}
+
+function fundedRatioOfPortfolio(
+  wealth2033: number[],
+  reserve: number,
+  wanted: number[],
+): PortfolioFundedRatio | null {
+  if (!(reserve > 0) || !Number.isFinite(reserve) || wealth2033.length === 0) return null;
+  const ratios = wealth2033.map((wealth) => wealth / reserve);
+  return {
+    percentiles: percentiles(ratios, wanted),
+    shareCovered: wealth2033.filter((wealth) => wealth + 1e-6 >= reserve).length / wealth2033.length,
+    formula:
+      "Beginning-of-2033 wealth on a portfolio trial (stream 1) divided by the reserve target used on this page. A ratio of at least 1 means that trial can fund the reserve before any facility gift.",
   };
 }
 
@@ -344,10 +436,13 @@ function conditionalAnchor(
   return { value: row.wealth2031, label: `beginning-of-2031 wealth on the ${facility.conditionalSource} path` };
 }
 
-/** Two annual returns take beginning-of-2031 wealth to beginning-of-2033 wealth. */
+/**
+ * Two annual returns take beginning-of-2031 wealth to beginning-of-2033 wealth.
+ * Sleeve returns are the portfolio stream at 2031 and 2032 (common random numbers
+ * with the full-horizon sample). Balances restart at the 2031 policy weights.
+ */
 export function simulateTwoYearWealth(assumptions: Assumptions, wealth2031: number): number[] {
-  const factor = cholesky(assumptions.correlation);
-  const randn = boxMuller(mulberry32(normalizeSeed(assumptions.seed) + 7));
+  const factor = prepareCorrelation(assumptions.correlation, assumptions.correlationStress).factor;
   const out: number[] = [];
   for (let trial = 0; trial < assumptions.trials; trial++) {
     let balances = weightsAtYear(assumptions.glide, COMMUNICATION_YEAR).map((weight) => wealth2031 * weight);
@@ -357,14 +452,11 @@ export function simulateTwoYearWealth(assumptions: Assumptions, wealth2031: numb
         const total = balances.reduce((sum, value) => sum + value, 0);
         balances = policy.map((weight) => total * weight);
       }
-      const raw = assumptions.sleeves.map(() => randn());
-      const shocks = factor ? correlatedShocks(factor, raw) : raw;
-      const returns = assumptions.sleeves.map((sleeve, index) =>
-        simpleReturn(sleeve.mu, sleeve.sigma, shocks[index], assumptions.returnModel, assumptions.normalFloor),
-      );
-      balances = balances.map((balance, index) => balance * (1 + returns[index]));
+      const returns = mcSleeveReturns(assumptions, trial, year, factor);
+      balances = balances.map((balance, index) => balance * (1 + (returns[index] ?? 0)));
     }
-    out.push(balances.reduce((sum, value) => sum + value, 0));
+    const next = balances.reduce((sum, value) => sum + value, 0);
+    out.push(Number.isFinite(next) ? next : 0);
   }
   return out;
 }

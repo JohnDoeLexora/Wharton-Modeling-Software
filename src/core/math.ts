@@ -1,6 +1,10 @@
 import type { ReturnModel } from "./types";
 
-/** Mulberry32. Returns uniforms on [0, 1). */
+/**
+ * Mulberry32. Returns uniforms on [0, 1).
+ * Not used by the projection engine. The engine draws from the counter-based
+ * streams in `rng.ts`, so a sample does not depend on call order.
+ */
 export function mulberry32(seed: number): () => number {
   let a = seed >>> 0;
   return () => {
@@ -81,16 +85,25 @@ export function simpleReturn(
   model: ReturnModel,
   floor: number,
 ): number {
+  if (!Number.isFinite(mu) || !Number.isFinite(sigma) || !Number.isFinite(z) || !Number.isFinite(floor)) {
+    return Number.NaN;
+  }
   const vol = sigma < 0 ? 0 : sigma;
   if (model === "normal") {
-    return Math.max(floor, mu + vol * z);
+    const linear = mu + vol * z;
+    if (!Number.isFinite(linear)) return z >= 0 ? 1e6 : floor;
+    return Math.max(floor, linear);
   }
   if (mu <= -1) return -1;
   const meanRelative = 1 + mu;
   const s2 = Math.log(1 + (vol * vol) / (meanRelative * meanRelative));
   const m = Math.log(meanRelative) - s2 / 2;
   const s = Math.sqrt(s2);
-  return Math.exp(m + s * z) - 1;
+  const exponent = m + s * z;
+  // Math.exp overflows past about 709. Cap the exponent so a wild normal does not become Infinity.
+  const capped = Math.min(709, exponent);
+  const result = Math.exp(capped) - 1;
+  return Number.isFinite(result) ? result : 1e6;
 }
 
 /** Present value of `count` payments, first one immediate, discounted at a flat yield. */

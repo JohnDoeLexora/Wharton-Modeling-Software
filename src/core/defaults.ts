@@ -42,7 +42,8 @@ function rules(): CandidateRule[] {
 /** Case cash flows plus zero market assumptions. Charts sit still until the team types its own inputs. */
 export function zeroAssumptions(): Assumptions {
   return {
-    schema: 1,
+    schemaVersion: 2,
+    schema: 2,
     tag: "zero-default",
     certaintyNote: "",
     sleeves: [
@@ -57,8 +58,12 @@ export function zeroAssumptions(): Assumptions {
       [1, 0],
       [0, 1],
     ],
+    correlationStress: 0,
     rebalance: "annual",
     returnModel: "lognormal",
+    shockModel: "parametric",
+    bootstrapHistory: [],
+    blockLength: 1,
     normalFloor: -0.999,
     inflation: 0,
     trials: 1000,

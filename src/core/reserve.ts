@@ -1,6 +1,7 @@
 import { OPERATING_PAYMENT, OPERATING_PAYMENTS, OPERATING_FIRST_YEAR, yearIndex } from "./case";
-import { boxMuller, macaulayDuration, modifiedDuration, mulberry32, normalizeSeed, pvAnnuityDue, simpleReturn } from "./math";
-import type { ReserveMethod, ReserveParams, ReserveSizing, ReserveYearRow, ReturnModel } from "./types";
+import { macaulayDuration, modifiedDuration, normalizeSeed, percentile, pvAnnuityDue, simpleReturn } from "./math";
+import { STREAM, standardNormal } from "./rng";
+import type { PathwiseFundedRatio, ReserveMethod, ReserveParams, ReserveSizing, ReserveYearRow, ReturnModel } from "./types";
 
 /**
  * Smallest reserve that funds every payment on one deterministic return path.
@@ -76,9 +77,11 @@ export function sizeShortfallReserve(args: {
   sigma: number;
   target: number;
   trials: number;
+  /** Master seed. Draws use stream 2, not seed+917 and not the portfolio stream. */
   seed: number;
   returnModel: ReturnModel;
   normalFloor: number;
+  percentiles?: number[];
   payment?: number;
   steps?: number;
 }): ReserveSizing {
@@ -93,16 +96,18 @@ export function sizeShortfallReserve(args: {
       achievedProbability: 1,
       macaulayDuration: null,
       modifiedDuration: null,
+      pathwiseFundedRatio: null,
       message: "Target is 0, so this method sets the reserve to $0. That does not fund the operating payments.",
     };
   }
 
-  const randn = boxMuller(mulberry32(normalizeSeed(args.seed)));
+  const seed = normalizeSeed(args.seed);
   const requirements: number[] = [];
   for (let trial = 0; trial < args.trials; trial++) {
     const rates: number[] = [];
     for (let step = 0; step < steps; step++) {
-      rates.push(simpleReturn(args.mu, args.sigma, randn(), args.returnModel, args.normalFloor));
+      const z = standardNormal(seed, STREAM.reserve, trial, step, 0);
+      rates.push(simpleReturn(args.mu, args.sigma, z, args.returnModel, args.normalFloor));
     }
     requirements.push(reserveToImmunize(rates, payment));
   }
@@ -117,6 +122,7 @@ export function sizeShortfallReserve(args: {
       achievedProbability: attainable,
       macaulayDuration: null,
       modifiedDuration: null,
+      pathwiseFundedRatio: null,
       message:
         "In this sample, too many paths destroy the reserve (a return at or below -100%) before later payments. Lower the target or change the reserve return assumption. No finite reserve in the sample hits the target.",
     };
@@ -132,9 +138,54 @@ export function sizeShortfallReserve(args: {
     achievedProbability: achieved,
     macaulayDuration: null,
     modifiedDuration: null,
+    pathwiseFundedRatio: pathwiseRatio(requirements, reserve, args.percentiles),
     message:
-      "Sized from the order statistic of path-by-path immunizing reserves. The achieved share is a count inside this seeded sample, not a forecast.",
+      `Sized from the order statistic of path-by-path immunizing reserves on stream ${STREAM.reserve} (reserve), ` +
+      `master seed ${seed}. Trial t lines up with portfolio trial t, but the shocks are not the portfolio shocks. ` +
+      "The achieved share is a count inside this seeded sample, not a forecast.",
   };
+}
+
+function pathwiseRatio(requirements: number[], reserve: number, percentilesWanted: number[] | undefined): PathwiseFundedRatio {
+  const ps = percentilesWanted && percentilesWanted.length > 0 ? percentilesWanted : [0.05, 0.5, 0.95];
+  const ratios: number[] = [];
+  for (const requirement of requirements) {
+    if (Number.isFinite(requirement) && requirement > 0) ratios.push(reserve / requirement);
+  }
+  const percentiles: Record<string, number> = {};
+  for (const p of ps) {
+    const key = String(Math.round(p * 1000) / 10);
+    percentiles[key] = ratios.length > 0 ? percentile(ratios, p) : Number.NaN;
+  }
+  const examples = exampleTrials(requirements, reserve);
+  const shareCovered = requirements.filter((value) => value <= reserve + 1e-6).length / requirements.length;
+  return {
+    percentiles,
+    shareCovered,
+    examples,
+    formula:
+      "Funded ratio on a reserve path = sized reserve / immunizing reserve of that path. " +
+      "Draws use stream 2. A ratio of at least 1 means that path's payments clear if the sized reserve is set aside.",
+  };
+}
+
+function exampleTrials(requirements: number[], reserve: number): PathwiseFundedRatio["examples"] {
+  const indexes = new Set<number>([0, 1, 2].filter((trial) => trial < requirements.length));
+  let worst = -1;
+  let worstValue = Number.NEGATIVE_INFINITY;
+  requirements.forEach((value, trial) => {
+    if (Number.isFinite(value) && value > worstValue) {
+      worstValue = value;
+      worst = trial;
+    }
+  });
+  if (worst >= 0) indexes.add(worst);
+  return [...indexes].sort((a, b) => a - b).map((trial) => {
+    const requirement = requirements[trial];
+    const fundedRatio =
+      Number.isFinite(requirement) && requirement > 0 ? reserve / requirement : null;
+    return { trial, requirement, fundedRatio };
+  });
 }
 
 function finiteOrNull(method: ReserveMethod, reserve: number, message: string, yieldForDuration: number | null): ReserveSizing {
@@ -146,6 +197,7 @@ function finiteOrNull(method: ReserveMethod, reserve: number, message: string, y
       achievedProbability: null,
       macaulayDuration: null,
       modifiedDuration: null,
+      pathwiseFundedRatio: null,
       message: "The rate is at or below -100%, so later payments cannot be prefunded by investing the remainder. No finite reserve works.",
     };
   }
@@ -164,6 +216,7 @@ function finiteOrNull(method: ReserveMethod, reserve: number, message: string, y
     achievedProbability: null,
     macaulayDuration: Number.isFinite(duration) ? duration : null,
     modifiedDuration: Number.isFinite(modified) ? modified : null,
+    pathwiseFundedRatio: null,
     message,
   };
 }
@@ -171,7 +224,7 @@ function finiteOrNull(method: ReserveMethod, reserve: number, message: string, y
 export function sizeReserve(
   method: ReserveMethod,
   params: ReserveParams,
-  sample: { trials: number; seed: number; returnModel: ReturnModel; normalFloor: number },
+  sample: { trials: number; seed: number; returnModel: ReturnModel; normalFloor: number; percentiles?: number[] },
 ): ReserveSizing {
   if (method === "ladder") {
     const reserve = reserveToImmunize(flatReturns(params.discountYield));
@@ -209,6 +262,7 @@ export function sizeReserve(
     seed: sample.seed,
     returnModel: sample.returnModel,
     normalFloor: sample.normalFloor,
+    percentiles: sample.percentiles,
   });
 }
 

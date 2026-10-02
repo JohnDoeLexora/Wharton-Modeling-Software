@@ -1,4 +1,4 @@
-import { CASE_TIMELINE, DISCLAIMER } from "./case";
+import { buildRunPackage } from "./package";
 import type { Assumptions, ModelOutput, ResearchNote } from "./types";
 
 function cell(value: string | number | null | undefined): string {
@@ -157,38 +157,5 @@ export function notesCsv(notes: ResearchNote[]): string {
 }
 
 export function workspaceJson(assumptions: Assumptions, output: ModelOutput, notes: ResearchNote[]): string {
-  return JSON.stringify(
-    {
-      disclaimer: DISCLAIMER,
-      exportedAt: new Date().toISOString(),
-      caseTimeline: CASE_TIMELINE,
-      winsTradingPnlIncluded: false,
-      taxesIncluded: false,
-      assumptions,
-      results: {
-        errors: output.errors,
-        scenarios: output.scenarios,
-        monteCarlo: output.monteCarlo
-          ? {
-              trials: output.monteCarlo.trials,
-              seed: output.monteCarlo.seed,
-              byYear: output.monteCarlo.byYear,
-              wealth2031: output.monteCarlo.wealth2031,
-              wealth2033: output.monteCarlo.wealth2033,
-            }
-          : null,
-        reserve: output.reserve,
-        facility: output.facility
-          ? {
-              ...output.facility,
-              contributionSamples: undefined,
-              contributionSampleCount: output.facility.contributionSamples.length,
-            }
-          : null,
-      },
-      researchNotes: notes,
-    },
-    null,
-    2,
-  );
+  return JSON.stringify(buildRunPackage(assumptions, output, notes), null, 2);
 }
