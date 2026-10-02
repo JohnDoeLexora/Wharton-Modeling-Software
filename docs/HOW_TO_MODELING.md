@@ -102,9 +102,31 @@ An extreme drift check, useful only as arithmetic: two sleeves, weights 50/50, r
 - **Lognormal** (the starter model). The shock is a standard normal. Correlation across sleeves is applied to those shocks first (a Gaussian copula). The simple return `r` then satisfies `E[1+r] = 1+μ` and `Var(1+r) = σ²`, which keeps `1+r` positive. A sleeve cannot lose more than the money in it.
 - **Normal, with a floor.** `r = max(floor, μ + σ Z)`. The floor is an assumption. The default sits just above −100%.
 
-Draws are independent across years. The same seed repeats the same sample. The portfolio sample uses your seed. The reserve shortfall sample uses that seed plus 917. The two-year conditional range uses that seed plus 7. Quote the seed when you export.
+Draws are independent across years. The same master seed repeats the same sample. Quote the seed, the stream ids, and the software commit when you export.
 
-Changing trials, the seed, μ, σ, correlation, the return model, or the glide path changes the sample. Read the new run as a new experiment.
+### One master seed, three streams
+
+The engine does not walk a single random-number cursor. A draw is a pure function of five coordinates:
+
+```
+(master seed, stream id, trial, step, dimension)
+```
+
+Call order does not matter. Trial 0 does not change if you raise the trial count from 1,000 to 5,000. The generator is SplitMix64, turned into a uniform on (0, 1), then into a standard normal with Box–Muller. Dimensions 2k and 2k+1 are one pair. The spare normal is not carried into the next year.
+
+| Stream | Id | Step | Dimension | What it is |
+| --- | --- | --- | --- | --- |
+| Portfolio | 1 | Calendar year of the return, 2027–2041 | Sleeve index | Sleeve shocks for the full-horizon sample |
+| Reserve | 2 | Interval 0..8, after payment k and before payment k+1 | 0 | The reserve asset in the shortfall sample |
+| Bootstrap | 3 | Block index | 0 | Starting row, only when you select block bootstrap |
+
+The conditional 2031→2033 band does **not** have a fourth seed. It reuses stream 1 at calendar years 2031 and 2032 and the same trial index. That is common random numbers with the full-horizon sample. Wealth is restarted at the anchor and at the 2031 policy weights. Balances that had drifted before 2031 are not carried into that restart. With annual rebalancing, trial t started from trial t’s own 2031 wealth lands on trial t’s 2033 wealth. With drift, the sleeve shocks still match and the balances do not, because the restart puts the anchor back on the policy mix.
+
+Stream 2 is a different asset on purpose. Trial t of the reserve can be discussed next to trial t of the portfolio, and the shocks are not the portfolio’s shocks. Do not describe them as one shared history of market returns. Do describe them as one master seed with named streams.
+
+Block bootstrap replaces stream-1 parametric shocks with rows you type. A uniform on stream 3 picks the start of each block. μ, σ, and the Gaussian copula are not used on those paths. Bear, base, and bull still use the scenario returns you typed.
+
+Changing trials, the seed, μ, σ, correlation, the stress, the return model, the shock model, or the glide path changes the sample. Read the new run as a new experiment.
 
 ### How to read a percentile without overclaiming
 
@@ -217,7 +239,7 @@ Three methods are always shown. You mark one as the primary draft. The draft sen
 
 2. **Full-horizon percentile band.** Draws start in 2027 from the case contributions and your return model. At each draw’s 2033 wealth, the reserve is removed and the marked rule is applied. The band runs from the low percentile you set to the high percentile you set. The sentence also reports the share of **this sample** that landed inside the band, and the share of draws in which 2033 wealth does not cover the reserve. Those are counts. They are not a promise that the gift will land in the band.
 
-3. **Conditional two-year band.** This is the problem as it looks in 2031, once that morning’s wealth is known. You anchor on the bear, base, or bull 2031 wealth, on the sample median, or on a number you type. The app then redraws only 2031 and 2032. Wealth starts the two years invested at the 2031 glide weights, and your rebalance setting applies. From the team’s seat in 2026, this method describes a **rule** for what to say later (“given the portfolio we actually have in 2031, communicate the 10th to 90th percentile of the two-year sample”). The full-horizon band describes the range of gifts implied by today’s assumptions, before 2031 wealth is known. They answer different questions. Report which one you mean.
+3. **Conditional two-year band.** This is the problem as it looks in 2031, once that morning’s wealth is known. You anchor on the bear, base, or bull 2031 wealth, on the sample median, or on a number you type. The app then applies the portfolio stream’s 2031 and 2032 shocks, the same trial index as the full-horizon sample, starting from that anchor at the 2031 policy weights. It does not open a new seed. From the team’s seat in 2026, this method describes a **rule** for what to say later (“given the portfolio we actually have in 2031, communicate the 10th to 90th percentile of the two-year sample”). The full-horizon band describes the range of gifts implied by today’s assumptions, before 2031 wealth is known. They answer different questions. Report which one you mean.
 
 A draw that cannot fund the reserve contributes $0 to the facility. The range can therefore include zero because the operating commitment comes first, not because the rule is stingy.
 
@@ -275,20 +297,142 @@ If the service is down or the weights are not downloaded, the tab says so. **Sco
 
 Sentiment does not enter `runModel`. There is no optimizer.
 
+## Correlation stress
+
+The typed matrix is the Gaussian copula of the parametric model. A stress number is added to every off-diagonal and the result is clipped to ±0.999. Zero stress leaves the typed matrix unchanged. The diagonal stays 1.
+
+If the minimum eigenvalue is below −1e−8, the matrix is not positive semidefinite and a correlation factor cannot be built honestly. The engine clips negative eigenvalues to zero, restores a unit diagonal, and says so. Monte Carlo then uses the repaired matrix, not the one you typed. A warning on the assumption inspector is the signal. Do not quote the typed entries as if they were the ones in the sample.
+
+Block bootstrap ignores the matrix. The dependence is whatever dependence is in the rows you typed.
+
+## Pathwise funded ratio
+
+Two ratios are reported. Neither is a probability.
+
+**Portfolio ratio.** Beginning-of-2033 wealth on a stream-1 trial, divided by the reserve target used on the facility page. A ratio of at least 1 means that trial can set the reserve aside before any facility gift. The share is a count of trials.
+
+**Reserve-path ratio,** shortfall method only. The sized reserve divided by the immunizing reserve of that stream-2 path. A ratio of at least 1 means that path’s ten payments clear if you set aside the sized reserve and then earn that path. The examples table shows the first trials and the trial with the largest finite requirement.
+
+A funded ratio of 1 on the ladder schedule is a different object. It means assets match the present value of what is left, at the yield you typed, along the single reinvestment path on the schedule.
+
+## Local sensitivity
+
+The projection tab can compute a one-at-a-time probe. It is not an optimizer and it does not search for a portfolio.
+
+For a result V and an input x, with a bump h:
+
+```
+greek ≈ (V(x+h) − V(x−h)) / (2h)
+one-at-a-time up = V(x+h) − V(x)
+```
+
+h is 0.01 for μ, for σ, and for the scenario base return. h is 0.05 for the first sleeve’s glide weight, after which the other weights are rescaled so the knot still sums to 1. h is 0.005 for the discount yield.
+
+The four results are beginning-of-2033 wealth on the **base** path, the type-7 50th percentile of Monte Carlo 2033 wealth, and the low and high ends of the communication method you marked.
+
+μ and σ move the Monte Carlo. They do not move the bear, base, or bull paths. The scenario base return moves the base path and does not move a zero-volatility Monte Carlo whose μ you left alone. The discount yield moves the ladder and the contribution band. It does not move portfolio wealth. If a chart moves when you thought you bumped a different input, you have mixed the columns up. The sensitivity table is there to catch that.
+
+A one-sleeve glide cannot shift, and a σ bump that would pass below zero is floored. Those rows are marked clamped. The greek is then not a clean central difference. Read the note on the row.
+
+## Worked numbers from the case cash flows
+
+Contributions: $300,000 at the beginning of 2027, $150,000 at the beginning of 2028, nothing else. One sleeve, or a 50/50 mix of 7% and 3%, both give a constant 5% portfolio return on the base path.
+
+```
+2027   300,000.00
+2028   465,000.00
+2029   488,250.00
+2030   512,662.50
+2031   538,295.625
+2032   565,210.40625
+2033   593,470.9265625
+```
+
+The same path at 4% ends 2033 at $562,093.6409088. At 6% it ends at $626,289.5703168. The central difference of 2033 wealth with respect to that constant return, per 1.00 of return, is about $3,209,796. Per percentage point it is about $32,098. That is the scenario-base greek when every sleeve’s base return moves together and the path is a flat 5%. It is not a μ greek. μ does not enter this path.
+
+Ten payments of $50,000, first one immediate:
+
+| Yield | Present value |
+| --- | --- |
+| 0% | 500,000 exactly |
+| 3% | 439,305.446094 |
+| 4% | 421,766.580526 |
+| 5% | 405,391.083782 |
+
+At 0% the reserve is $500,000 and 2033 wealth on the zero-return path is $450,000, so the residual for a facility gift is $0 and the gap is $50,000. At a 5% base path and a 0% reserve, residual wealth is $593,470.93 − $500,000 = $93,470.93. Retaining 40% of that residual contributes 60% of it, about $56,082.56, and keeps about $37,388.37. Check the identity: 500,000 + 56,082.56 + 37,388.37 = 593,470.93.
+
+Macaulay duration at a 0% yield is (0+1+…+9)/10 = 4.5 years. The immediate payment has time weight zero.
+
+A flat ladder at the sizing yield has a funded ratio within 1e−6 of 1 at every payment date, and the balance after the 2042 payment is within a fraction of a cent of zero. If your schedule does not do that, the reinvestment path is not the path you sized.
+
+## Run ledger and the reproducibility package
+
+Save a named run on the Run ledger tab. The row stores a deep copy of the assumptions, the SHA-256 of their canonical JSON, the master seed, the stream description, and a short summary: 2033 wealth on each scenario, the Monte Carlo median, the reserve, and the range endpoints. Editing the workspace afterward does not edit the row. Load replaces the workspace inputs. Compare shows the summaries and every field that differs.
+
+Export **Run package JSON** for the appendix. One file contains:
+
+- assumptions
+- results, including the 2031 and 2033 wealth samples
+- the projection, reserve, and facility CSV text
+- the liability schedule
+- the tolerances named below
+- a methodology footnote: method names, master seed, stream ids, shock model, whether correlation was repaired, software version, and git commit
+
+The hash identifies inputs. The commit identifies formulas. A matching hash under a different commit is not the same experiment. The export time is not part of the hash.
+
+WInS profit and loss is not in the package. FinBERT scores are not in the projection. Research notes are included only as notes.
+
+## Failure modes
+
+These are the mistakes that make a careful table say something it does not mean.
+
+- **Putting WInS profit and loss into the long-term projection.** The competition guide starts the projection from the case contributions and the team’s return assumptions. This toolkit has no field for trading profit and loss. A good month in the portfolio game is not a new μ.
+- **Reading a percentile as a promise.** “The 10th percentile is $X” means 10% of these draws fell below $X. It does not mean the probability is 10%, and it does not mean co-sponsors should expect $X.
+- **Pasting the teaching example into a deliverable.** Those numbers exist so charts move. They are labeled as not a strategy.
+- **Mixing μ with the scenario base return.** μ feeds Monte Carlo. The base column feeds the base path. They can be equal. They are not the same input. The sensitivity table is the check.
+- **Treating stream 2 as the portfolio’s shocks.** Same seed, same trial index, different stream, different asset.
+- **Treating the conditional band as a fresh independent sample.** It reuses 2031 and 2032 portfolio shocks. It does restart the balances at the policy mix, so a drifted portfolio and the conditional band are not the same wealth path.
+- **Reading a funded ratio of 1 as “safe.”** It means matched at the yield you typed.
+- **Typing a custom reinvestment path and thinking the reserve was resized.** Sizing still uses the method rate. The schedule then shows the gap. That gap is the point.
+- **Inflating the $50,000.** The case payments are nominal. Inflation changes only the real-wealth column.
+- **Quoting a repaired correlation as if it were the matrix you typed.** The inspector shows the matrix the factor used, and the warning says it was repaired.
+- **Letting block bootstrap silently stand in for a view about μ.** If the shock model is bootstrap, μ and σ are not in the Monte Carlo. Say that.
+- **Treating a 100% shortfall target as a proof.** It is the worst finite path in the sample.
+
+## Numerical tolerances
+
+| Check | Tolerance |
+| --- | --- |
+| Dollar identities, such as wealth = reserve + contribution + flexibility | 1e−6 dollars |
+| Rates, weights, Cholesky entries | 1e−9 |
+| Funded ratio of a matched ladder | 1e−6 |
+| An eigenvalue is treated as nonnegative | above −1e−8 |
+| Percentiles | Hyndman–Fan type 7, position (n−1)·p |
+| Money on screen | nearest dollar |
+| Money in JSON and CSV | full precision |
+
+A lognormal draw whose exponent would overflow is capped at exp(709)−1, which is finite. A non-finite μ, σ, or scenario return stops the portfolio sample and says why. It does not draw a quiet NaN through the chart.
+
 ## A small map of the code
 
 | Piece | Role |
 | --- | --- |
 | `src/core/case.ts` | Locked dates, contributions, payment amount, disclaimer. |
-| `src/core/project.ts` | Beginning-of-year projection, rebalance or drift. |
-| `src/core/reserve.ts` | Immunization, roll-forward, shortfall order statistic, duration. |
+| `src/core/liability.ts` | The ten-payment liability object. |
+| `src/core/rng.ts` | Counter-based streams 1, 2, and 3. |
+| `src/core/project.ts` | Beginning-of-year projection, rebalance or drift, sleeve shocks. |
+| `src/core/reserve.ts` | Immunization, roll-forward, shortfall order statistic, pathwise funded ratio, duration. |
+| `src/core/correlation.ts` | Stress, PSD check, eigenvalue repair. |
+| `src/core/sensitivity.ts` | One-at-a-time bumps and central differences. |
+| `src/core/ledger.ts` | Saved runs, the assumptions hash, field diffs. |
 | `src/core/facility.ts` | Rules, scenario envelope, percentile bands, draft wording. |
 | `src/core/run.ts` | Validates inputs and runs one consistent pass. |
-| `src/core/defaults.ts` | Zero starting point and the opt-in teaching example. |
+| `src/core/package.ts` | Run package and the methodology footnote. |
+| `src/core/defaults.ts` | Zero starting point and the opt-in teaching example. Schema version 2. |
 | `services/finbert/server.py` | Optional local FinBERT scoring. |
 
-`npm test` checks the cash flows, the annuity, the ladder invariant (funded ratio near 1 and a final balance near 0), scenario compounding, drift versus rebalance, seed repeatability, the rule that facility dollars cannot touch the reserve, and the wording of a range. When you change a formula, change the guide in the same edit.
+`npm test` checks the cash flows, the annuity, the ladder invariant (funded ratio near 1 and a final balance near 0), scenario compounding, drift versus rebalance, seed repeatability, common random numbers between the full-horizon sample and the conditional band, the separation of μ from the scenario base return, the rule that facility dollars cannot touch the reserve, and the wording of a range. When you change a formula, change the guide in the same edit.
 
 ## Limits, stated plainly
 
-Annual independent returns will not reproduce a crash that lasts three months and then reverses, or a decade of below-average real equity returns, unless you put that story into a scenario return or into μ. A lognormal sample has no jumps. Correlation is constant. The reserve shortfall sample is not the same set of random numbers as the portfolio sample, so do not describe them as one shared history. Present value is only as meaningful as the yield you discount at. A funded ratio of 1 means “matched at that yield,” not “safe.” A percentile band is a property of a sample. The draft co-sponsor sentence is a template. The judgment, and the responsibility for it, stays with the team.
+Annual independent returns will not reproduce a crash that lasts three months and then reverses, or a decade of below-average real equity returns, unless you put that story into a scenario return, into μ, or into a bootstrap history. A lognormal sample has no jumps. Correlation is constant unless you stress it, and a repair changes the matrix. Stream 2 is not stream 1. Present value is only as meaningful as the yield you discount at. A funded ratio of 1 means “matched at that yield,” not “safe.” A percentile band is a property of a sample. The draft co-sponsor sentence is a template. The judgment, and the responsibility for it, stays with the team.
