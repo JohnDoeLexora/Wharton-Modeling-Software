@@ -1,9 +1,10 @@
 import { normalizeWeights, weightsAtYear } from "../core/glide";
-import type { Assumptions, Sleeve } from "../core/types";
+import type { Assumptions, ShockModel, Sleeve } from "../core/types";
 import { useStore } from "../state";
 import { CaseTimeline, Issues, TagPill } from "./bits";
 import { LineChart } from "./Chart";
 import { NumberField, PercentField } from "./fields";
+import { Inspector } from "./Inspector";
 
 const SLEEVE_COLORS = ["#0e5f5a", "#8a4b08", "#1e3348", "#8d2b2b", "#3d5a3a", "#6b4c7a"];
 
@@ -197,6 +198,7 @@ export function AssumptionsPanel() {
           markers={[2031, 2033]}
           formatTick={(value) => `${Math.round(value * 100)}%`}
           yDomain={[0, 1]}
+          downloadName="gao-glide-weights"
         />
         <p className="muted">The chart shows weights, not dollars. The vertical scale is a share of the portfolio.</p>
       </section>
@@ -292,12 +294,48 @@ export function AssumptionsPanel() {
             label="Random seed"
             value={assumptions.seed}
             step="1"
-            hint="Same seed, same draws. Quote it if you export a sample."
+            hint="Master seed. Stream 1 is the portfolio, stream 2 is the reserve, stream 3 is the bootstrap. Quote it with the run package."
             onChange={(seed) => update((a) => ({ ...a, seed: Math.round(seed) }))}
           />
+          <NumberField
+            label="Correlation stress"
+            value={assumptions.correlationStress}
+            step="0.05"
+            hint="Added to every off-diagonal, then clipped to ±0.999. Zero leaves the typed matrix unchanged."
+            onChange={(correlationStress) => update((a) => ({ ...a, correlationStress }))}
+          />
+          <label className="field">
+            <span>Shock model</span>
+            <select
+              value={assumptions.shockModel}
+              onChange={(event) => update((a) => ({ ...a, shockModel: event.target.value as ShockModel }))}
+            >
+              <option value="parametric">Parametric: μ, σ, and the Gaussian copula</option>
+              <option value="block_bootstrap">Circular block bootstrap of rows you type</option>
+            </select>
+            <small>Bootstrap ignores μ, σ, and the copula on the Monte Carlo paths. Scenario paths still use bear, base, and bull.</small>
+          </label>
+          {assumptions.shockModel === "block_bootstrap" ? (
+            <>
+              <NumberField
+                label="Block length"
+                value={assumptions.blockLength}
+                step="1"
+                hint="1 resamples single rows. Longer blocks keep consecutive rows together, wrapping around the list."
+                onChange={(blockLength) => update((a) => ({ ...a, blockLength: Math.round(blockLength) }))}
+              />
+              <BootstrapEditor />
+            </>
+          ) : null}
         </div>
+        <p className="formula">
+          Parametric draw: z = Box–Muller at (master seed, stream 1, trial, calendar year, sleeve), then Lz. Lognormal
+          matches E[1+r] = 1+μ and Var(1+r) = σ². The 2031–2033 band reuses those same 2031 and 2032 draws.
+        </p>
         <PercentileEditor />
       </section>
+
+      <Inspector />
 
       <section className="card actions-card">
         <h3>Reset the workspace inputs</h3>
@@ -328,6 +366,45 @@ export function AssumptionsPanel() {
         </div>
       </section>
     </div>
+  );
+}
+
+function BootstrapEditor() {
+  const { assumptions, update } = useStore();
+  const text = assumptions.bootstrapHistory
+    .map((row) => row.map((value) => String(Math.round(value * 100000) / 1000)).join(", "))
+    .join("\n");
+  return (
+    <label className="field wide">
+      <span>Historical sleeve returns, in percent</span>
+      <textarea
+        className="note"
+        rows={5}
+        defaultValue={text}
+        key={text}
+        aria-label="Bootstrap history"
+        placeholder={"7, 3\n-4, 1"}
+        onBlur={(event) => {
+          const rows = event.target.value
+            .split("\n")
+            .map((line) => line.trim())
+            .filter((line) => line.length > 0)
+            .map((line) => line.split(/[, ]+/).filter((part) => part.length > 0).map((part) => Number(part) / 100));
+          if (rows.length === 0) {
+            update((current) => ({ ...current, bootstrapHistory: [] }));
+            return;
+          }
+          if (rows.some((row) => row.length !== assumptions.sleeves.length || row.some((value) => !Number.isFinite(value)))) {
+            return;
+          }
+          update((current) => ({ ...current, bootstrapHistory: rows }));
+        }}
+      />
+      <small>
+        One period per line, sleeve order left to right, in percent. A line that does not match the sleeve count is ignored
+        until it does.
+      </small>
+    </label>
   );
 }
 

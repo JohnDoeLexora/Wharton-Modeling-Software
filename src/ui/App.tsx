@@ -1,9 +1,10 @@
-import { useState } from "react";
-import { StoreProvider } from "../state";
+import { useState, type KeyboardEvent } from "react";
+import { StoreProvider, useStore } from "../state";
 import { AssumptionsPanel } from "./AssumptionsPanel";
 import { ExportPanel } from "./ExportPanel";
 import { FacilityPanel } from "./FacilityPanel";
 import { GuidePanel } from "./GuidePanel";
+import { LedgerPanel } from "./LedgerPanel";
 import { ProjectionsPanel } from "./ProjectionsPanel";
 import { ResearchPanel } from "./ResearchPanel";
 import { ReservePanel } from "./ReservePanel";
@@ -13,6 +14,7 @@ const TABS = [
   ["projections", "Projections"],
   ["reserve", "Operating reserve"],
   ["facility", "Facility & range"],
+  ["ledger", "Run ledger"],
   ["research", "Research"],
   ["export", "Export"],
   ["guide", "How to model"],
@@ -30,6 +32,20 @@ export function App() {
 
 function Shell() {
   const [tab, setTab] = useState<Tab>("assumptions");
+  const { pending, output } = useStore();
+  const onTabsKeyDown = (event: KeyboardEvent<HTMLElement>) => {
+    const index = TABS.findIndex(([id]) => id === tab);
+    let next = index;
+    if (event.key === "ArrowRight") next = (index + 1) % TABS.length;
+    else if (event.key === "ArrowLeft") next = (index - 1 + TABS.length) % TABS.length;
+    else if (event.key === "Home") next = 0;
+    else if (event.key === "End") next = TABS.length - 1;
+    else return;
+    event.preventDefault();
+    const id = TABS[next][0];
+    setTab(id);
+    window.requestAnimationFrame(() => document.getElementById(`tab-${id}`)?.focus());
+  };
   return (
     <>
       <a className="skip" href="#content">
@@ -46,18 +62,33 @@ function Shell() {
         Every amber field is an assumption for the team to set and stress. Case cash flows and dates are locked.
         WInS trading gains and losses are not an input. Nothing here is a recommendation for Laura.
       </div>
-      <nav className="tabs" aria-label="Toolkit sections">
+      <p className="status-line" role="status">
+        {pending
+          ? "Updating the sample…"
+          : `Master seed ${output.masterSeed}. Stream 1 portfolio, stream 2 reserve, stream 3 bootstrap. Schema ${output.schemaVersion}.`}
+      </p>
+      <nav className="tabs" role="tablist" aria-label="Toolkit sections" onKeyDown={onTabsKeyDown}>
         {TABS.map(([id, label]) => (
-          <button key={id} type="button" aria-current={tab === id ? "page" : undefined} onClick={() => setTab(id)}>
+          <button
+            key={id}
+            id={`tab-${id}`}
+            type="button"
+            role="tab"
+            aria-selected={tab === id}
+            aria-controls="content"
+            tabIndex={tab === id ? 0 : -1}
+            onClick={() => setTab(id)}
+          >
             {label}
           </button>
         ))}
       </nav>
-      <main id="content">
+      <main id="content" role="tabpanel" aria-labelledby={`tab-${tab}`}>
         {tab === "assumptions" ? <AssumptionsPanel /> : null}
         {tab === "projections" ? <ProjectionsPanel /> : null}
         {tab === "reserve" ? <ReservePanel /> : null}
         {tab === "facility" ? <FacilityPanel /> : null}
+        {tab === "ledger" ? <LedgerPanel /> : null}
         {tab === "research" ? <ResearchPanel /> : null}
         {tab === "export" ? <ExportPanel /> : null}
         {tab === "guide" ? <GuidePanel /> : null}

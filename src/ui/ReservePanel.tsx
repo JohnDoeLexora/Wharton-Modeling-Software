@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { DECISION_YEAR } from "../core/case";
+import { caseLiabilityPv, caseLiabilitySchedule, discountFactor } from "../core/liability";
 import { rollReserve } from "../core/reserve";
 import type { ReserveMethod, ScenarioName } from "../core/types";
 import { useStore } from "../state";
@@ -28,7 +29,7 @@ const METHODS: { id: ReserveMethod; title: string; formula: string }[] = [
     id: "shortfall",
     title: "In-sample shortfall target",
     formula:
-      "Simulate reserve-return paths. For each path, compute the smallest reserve that funds all ten payments. Report the order statistic that covers your target share of those paths.",
+      "Stream 2 draws one reserve return per interval. For each trial, immunize that path. The reserve is the order statistic that covers the target share. Trial t lines up with portfolio trial t. The shocks are not the portfolio's shocks.",
   },
 ];
 
@@ -132,6 +133,8 @@ export function ReservePanel() {
         </button>
       </section>
 
+      <LiabilityCard yieldPerYear={reserve.discountYield} />
+
       <section className="card">
         <h3>Method to show on the schedule</h3>
         <div className="method-grid">
@@ -197,7 +200,37 @@ export function ReservePanel() {
             </tbody>
           </table>
         </div>
-        <p className="muted">{active.message}</p>
+        <p className="formula">{active.message}</p>
+        {output.facility?.portfolioFundedRatio ? (
+          <p className="muted">
+            {output.facility.portfolioFundedRatio.formula} In this sample, {pct(output.facility.portfolioFundedRatio.shareCovered, 1)} of
+            trials can fund the selected reserve. Median funded ratio{" "}
+            {num(output.facility.portfolioFundedRatio.percentiles["50"], 2)}.
+          </p>
+        ) : null}
+        {active.pathwiseFundedRatio ? (
+          <div className="table-wrap">
+            <table>
+              <caption>Pathwise funded ratio on stream 2. Sized reserve divided by that path’s immunizing reserve.</caption>
+              <thead>
+                <tr>
+                  <th>Trial</th>
+                  <th>Immunizing reserve</th>
+                  <th>Funded ratio</th>
+                </tr>
+              </thead>
+              <tbody>
+                {active.pathwiseFundedRatio.examples.map((example) => (
+                  <tr key={example.trial}>
+                    <td className="num">{example.trial}</td>
+                    <td className="num">{usd(example.requirement, 0)}</td>
+                    <td className="num">{example.fundedRatio === null ? "—" : num(example.fundedRatio, 3)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : null}
       </section>
 
       <section className="card">
@@ -246,10 +279,16 @@ export function ReservePanel() {
               years={rows.map((row) => row.calendarYear)}
               series={[
                 { name: "Reserve assets at start of year", color: "#0e5f5a", values: rows.map((row) => row.boyAssets) },
-                { name: "Present value of remaining payments", color: "#8a4b08", values: rows.map((row) => row.pvLiability), dash: "5 4" },
+                { name: "PV of remaining payments", color: "#8a4b08", values: rows.map((row) => row.pvLiability), dash: "5 4" },
+                { name: "Undiscounted payments left", color: "#1e3348", values: rows.map((row) => row.undiscountedLiability), dash: "2 3" },
               ]}
-              ariaLabel="Reserve assets and the present value of remaining operating payments, 2033 to 2042"
+              ariaLabel="Reserve assets against remaining operating liability, 2033 to 2042"
+              downloadName="gao-reserve-waterline"
             />
+            <p className="formula">
+              Funded ratio = beginning-of-year assets / present value of payments still due, including today’s, at the discount yield.
+              A matched ladder with no surplus sits near 1. That is an identity at the yield you typed, not a probability.
+            </p>
             <div className="table-wrap">
               <table>
                 <caption>
@@ -297,5 +336,51 @@ export function ReservePanel() {
       </section>
       <DisclaimerLine />
     </div>
+  );
+}
+
+function LiabilityCard({ yieldPerYear }: { yieldPerYear: number }) {
+  const liability = caseLiabilitySchedule();
+  const pv = caseLiabilityPv(yieldPerYear);
+  return (
+    <section className="card">
+      <h3>Liability cash flows</h3>
+      <p>
+        {liability.name}. {liability.count} payments of {usd(liability.payment)}, beginning of {liability.firstYear} through{" "}
+        {liability.lastYear}. Nominal sum {usd(liability.nominalSum)}. Inflation-linked: no.
+      </p>
+      <p className="formula">PV = Σ<sub>k=0..9</sub> 50,000 / (1+y)^k. The k = 0 payment is due the day the reserve is set aside.</p>
+      <p>
+        At the discount yield currently typed, present value is <strong className="num">{usd(pv, 2)}</strong>.
+      </p>
+      <div className="table-wrap">
+        <table>
+          <caption>Case operating schedule. These amounts are locked. The discounted column uses the yield above.</caption>
+          <thead>
+            <tr>
+              <th>Year</th>
+              <th>k</th>
+              <th>Payment</th>
+              <th>Discount factor</th>
+              <th>Discounted payment</th>
+            </tr>
+          </thead>
+          <tbody>
+            {liability.payments.map((payment) => {
+              const factor = discountFactor(yieldPerYear, payment.k);
+              return (
+                <tr key={payment.calendarYear}>
+                  <td>{payment.calendarYear}</td>
+                  <td className="num">{payment.k}</td>
+                  <td className="num">{usd(payment.payment)}</td>
+                  <td className="num">{num(factor, 4)}</td>
+                  <td className="num">{usd(payment.payment * factor, 2)}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }

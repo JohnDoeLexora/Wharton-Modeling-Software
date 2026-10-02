@@ -150,7 +150,7 @@ export function ResearchPanel() {
         <p className="muted">
           Model: ProsusAI/finbert. Araci, D. (2019), FinBERT: Financial Sentiment Analysis with Pre-trained Language Models,
           arXiv:1908.10063. This app does not quote an accuracy number. See the paper and the model card for the authors’ own evaluation.
-          Setup: <code>python scripts/setup_finbert.py</code> then <code>python services/finbert/server.py</code>.
+          Setup: <code>python3 scripts/setup_finbert.py</code>, then <code>.venv/bin/python services/finbert/server.py</code>.
         </p>
       </section>
 

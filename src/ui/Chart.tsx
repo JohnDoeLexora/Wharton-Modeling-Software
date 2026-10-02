@@ -1,4 +1,5 @@
-import { compactUsd } from "./format";
+import { useRef, type RefObject } from "react";
+import { compactUsd, downloadPng, downloadSvg } from "./format";
 
 interface Series {
   name: string;
@@ -12,6 +13,7 @@ interface Band {
   low: number[];
   high: number[];
   color: string;
+  name?: string;
 }
 
 export function LineChart({
@@ -22,6 +24,7 @@ export function LineChart({
   markers = [],
   formatTick = compactUsd,
   yDomain,
+  downloadName = "gao-chart",
 }: {
   years: number[];
   series: Series[];
@@ -30,7 +33,9 @@ export function LineChart({
   markers?: number[];
   formatTick?: (value: number) => string;
   yDomain?: [number, number];
+  downloadName?: string;
 }) {
+  const figureRef = useRef<HTMLElement>(null);
   const width = 760;
   const height = 340;
   const pad = { l: 68, r: 14, t: 16, b: 36 };
@@ -63,7 +68,7 @@ export function LineChart({
   const labelYears = new Set([2027, 2028, 2031, 2033, 2037, 2042]);
 
   return (
-    <figure className="chart">
+    <figure className="chart" ref={figureRef}>
       <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={ariaLabel}>
         {ticks.map((tick) => (
           <g key={tick}>
@@ -100,12 +105,12 @@ export function LineChart({
         )}
       </svg>
       <figcaption className="legend">
-        {bands.length > 0 ? (
-          <span>
-            <i className="swatch" style={{ background: bands[0].color }} />
-            Percentile band
+        {bands.map((band, index) => (
+          <span key={band.name ?? index}>
+            <i className="swatch" style={{ background: band.color }} />
+            {band.name ?? "Percentile band"}
           </span>
-        ) : null}
+        ))}
         {series.map((item) => (
           <span key={item.name}>
             <i className="swatch" style={{ background: item.color }} />
@@ -113,7 +118,41 @@ export function LineChart({
           </span>
         ))}
       </figcaption>
+      <ChartDownloads figureRef={figureRef} filename={downloadName} />
     </figure>
+  );
+}
+
+function ChartDownloads({
+  figureRef,
+  filename,
+}: {
+  figureRef: RefObject<HTMLElement | null>;
+  filename: string;
+}) {
+  return (
+    <div className="row-actions chart-downloads">
+      <button
+        type="button"
+        className="ghost"
+        onClick={() => {
+          const svg = figureRef.current?.querySelector("svg");
+          if (svg) downloadSvg(`${filename}.svg`, svg);
+        }}
+      >
+        Download SVG
+      </button>
+      <button
+        type="button"
+        className="ghost"
+        onClick={() => {
+          const svg = figureRef.current?.querySelector("svg");
+          if (svg) downloadPng(`${filename}.png`, svg);
+        }}
+      >
+        Download PNG
+      </button>
+    </div>
   );
 }
 
@@ -143,6 +182,7 @@ export function Histogram({
   bins: { lo: number; hi: number; count: number }[];
   ariaLabel: string;
 }) {
+  const figureRef = useRef<HTMLElement>(null);
   if (bins.length === 0) return <p className="muted">No simulated contributions yet.</p>;
   const width = 760;
   const height = 220;
@@ -152,7 +192,7 @@ export function Histogram({
   const innerH = height - pad.t - pad.b;
   const barW = innerW / bins.length;
   return (
-    <figure className="chart">
+    <figure className="chart" ref={figureRef}>
       <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={ariaLabel}>
         {bins.map((bin, index) => {
           const h = (bin.count / max) * innerH;
@@ -175,6 +215,65 @@ export function Histogram({
         </text>
       </svg>
       <figcaption className="legend">Facility contribution across full-horizon draws, under the rule used in the range.</figcaption>
+      <ChartDownloads figureRef={figureRef} filename="gao-contribution-histogram" />
+    </figure>
+  );
+}
+
+export function RangeChart({
+  rows,
+  ariaLabel,
+}: {
+  rows: { name: string; low: number | null; high: number | null }[];
+  ariaLabel: string;
+}) {
+  const figureRef = useRef<HTMLElement>(null);
+  const finite = rows.filter((row) => row.low !== null && row.high !== null && Number.isFinite(row.low) && Number.isFinite(row.high)) as {
+    name: string;
+    low: number;
+    high: number;
+  }[];
+  if (finite.length === 0) return <p className="muted">No finite contribution range to chart.</p>;
+  const width = 760;
+  const height = 56 + finite.length * 36;
+  const pad = { l: 210, r: 16, t: 16, b: 28 };
+  let min = Math.min(...finite.map((row) => Math.min(row.low, row.high)));
+  let max = Math.max(...finite.map((row) => Math.max(row.low, row.high)));
+  if (min === max) {
+    min -= 1;
+    max += 1;
+  }
+  const span = (max - min) * 0.06;
+  min -= span;
+  max += span;
+  const innerW = width - pad.l - pad.r;
+  const x = (value: number) => pad.l + ((value - min) / (max - min)) * innerW;
+  return (
+    <figure className="chart" ref={figureRef}>
+      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={ariaLabel}>
+        <line x1={x(min)} x2={x(max)} y1={height - pad.b} y2={height - pad.b} className="grid" />
+        <text x={pad.l} y={height - 8} className="tick">
+          {compactUsd(min)}
+        </text>
+        <text x={width - pad.r} y={height - 8} textAnchor="end" className="tick">
+          {compactUsd(max)}
+        </text>
+        {finite.map((row, index) => {
+          const y = pad.t + index * 36 + 14;
+          const left = Math.min(row.low, row.high);
+          const right = Math.max(row.low, row.high);
+          return (
+            <g key={row.name}>
+              <text x={pad.l - 8} y={y + 4} textAnchor="end" className="tick">
+                {row.name}
+              </text>
+              <line x1={x(left)} x2={x(right)} y1={y} y2={y} stroke="#0e5f5a" strokeWidth={8} strokeLinecap="butt" />
+            </g>
+          );
+        })}
+      </svg>
+      <figcaption className="legend">Low to high facility contribution under each communication method. Not a recommendation.</figcaption>
+      <ChartDownloads figureRef={figureRef} filename="gao-contribution-ranges" />
     </figure>
   );
 }

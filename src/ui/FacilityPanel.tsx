@@ -4,7 +4,7 @@ import { histogram } from "../core/math";
 import type { Assumptions, CandidateKind, CandidateRule, RangeMethod, ScenarioName } from "../core/types";
 import { useStore } from "../state";
 import { DisclaimerLine, Issues } from "./bits";
-import { Histogram } from "./Chart";
+import { Histogram, RangeChart } from "./Chart";
 import { DollarField, PercentField } from "./fields";
 import { pct, usd } from "./format";
 
@@ -62,6 +62,9 @@ export function FacilityPanel() {
           If wealth W is at least the reserve R: W = R + facility contribution + flexibility kept. If W is below R:
           contribution = 0, flexibility = 0, and the gap is R − W.
         </p>
+        {facility?.portfolioFundedRatio ? (
+          <p className="muted">{facility.portfolioFundedRatio.formula} Share of trials covered: {pct(facility.portfolioFundedRatio.shareCovered, 1)}.</p>
+        ) : null}
       </section>
 
       <section className="card">
@@ -283,6 +286,14 @@ export function FacilityPanel() {
             <p className="muted">
               Conditional anchor: {facility.conditionalAnchorLabel}
               {facility.conditionalAnchor !== null ? ` (${usd(facility.conditionalAnchor)})` : ""}.
+            </p>
+            <RangeChart
+              rows={facility.ranges.map((range) => ({ name: range.title, low: range.low, high: range.high }))}
+              ariaLabel="Facility contribution low and high under each communication method"
+            />
+            <p className="formula">
+              Scenario envelope: min and max across the scenarios you tick. Percentile bands: Hyndman–Fan type 7 on the
+              contribution sample. The conditional band reuses portfolio stream 1 at calendar years 2031 and 2032.
             </p>
             <div className="range-grid">
               {facility.ranges.map((range) => (

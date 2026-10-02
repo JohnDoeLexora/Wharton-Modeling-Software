@@ -1,4 +1,6 @@
 import { facilityCsv, notesCsv, projectionsCsv, reserveCsv, workspaceJson } from "../core/exportData";
+import { assumptionsHash } from "../core/ledger";
+import { methodologyFootnote } from "../core/package";
 import { useStore } from "../state";
 import { DisclaimerLine } from "./bits";
 import { download } from "./format";
@@ -6,6 +8,8 @@ import { download } from "./format";
 export function ExportPanel() {
   const { assumptions, output, notes } = useStore();
   const stamp = new Date().toISOString().slice(0, 10);
+  const hash = assumptionsHash(assumptions);
+  const footnote = methodologyFootnote(assumptions, output, hash);
 
   return (
     <div className="stack">
@@ -32,16 +36,26 @@ export function ExportPanel() {
           </button>
           <button
             type="button"
-            className="ghost"
-            onClick={() => download(`gao-workspace-${stamp}.json`, workspaceJson(assumptions, output, notes), "application/json")}
+            onClick={() => download(`gao-run-package-${stamp}.json`, workspaceJson(assumptions, output, notes), "application/json")}
           >
-            Workspace JSON
+            Run package JSON
+          </button>
+          <button type="button" className="ghost" onClick={() => download(`gao-methodology-${stamp}.txt`, footnote, "text/plain")}>
+            Methodology footnote
           </button>
         </div>
         <p className="muted">
-          The reserve CSV rolls the full sized reserve, even if the on-screen schedule was capped at a scenario’s wealth.
-          The JSON includes the seed, the trial count, and the 2031 and 2033 wealth samples.
+          The run package is one file: assumptions, results, the CSV tables, the liability schedule, tolerances, and the
+          methodology footnote. Assumptions hash <span className="mono">{hash}</span>. The hash identifies inputs. The
+          commit inside the file identifies the formulas.
         </p>
+        <p className="muted">
+          The reserve CSV rolls the full sized reserve, even if the on-screen schedule was capped at a scenario’s wealth.
+        </p>
+        <details>
+          <summary>Methodology footnote for this run</summary>
+          <pre className="method-note">{footnote}</pre>
+        </details>
       </section>
 
       <section className="card">

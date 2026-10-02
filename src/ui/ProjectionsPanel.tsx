@@ -4,6 +4,7 @@ import { useStore } from "../state";
 import { DisclaimerLine, Issues, TagPill } from "./bits";
 import { LineChart } from "./Chart";
 import { pct, usd } from "./format";
+import { SensitivityCard } from "./SensitivityCard";
 
 const SCENARIO_COLOR: Record<ScenarioName, string> = {
   bear: "#8d2b2b",
@@ -16,16 +17,7 @@ export function ProjectionsPanel() {
   const base = output.scenarios.base;
   const years = base?.map((point) => point.calendarYear) ?? [];
 
-  const bands =
-    output.monteCarlo && years.length
-      ? [
-          {
-            low: output.monteCarlo.byYear.map((row) => endpoint(row.values, assumptions.percentiles, "low")),
-            high: output.monteCarlo.byYear.map((row) => endpoint(row.values, assumptions.percentiles, "high")),
-            color: "rgba(30, 51, 72, 0.14)",
-          },
-        ]
-      : [];
+  const bands = output.monteCarlo && years.length ? fanBands(output.monteCarlo.byYear, assumptions.percentiles) : [];
 
   const series = (["bear", "base", "bull"] as ScenarioName[])
     .filter((name) => output.scenarios[name])
@@ -79,10 +71,14 @@ export function ProjectionsPanel() {
             bands={bands}
             markers={[2031, 2033]}
             ariaLabel="Projected beginning-of-year portfolio wealth from 2027 to 2042"
+            downloadName="gao-wealth-fan"
           />
+          <p className="formula">
+            {output.monteCarlo?.formula ?? "Monte Carlo did not run."} Percentiles are {assumptions.percentiles.map((p) => `p${percentileKey(p)}`).join(", ")}, Hyndman–Fan type 7.
+          </p>
           <p className="muted">
             Vertical lines mark 2031, when a range would be communicated, and 2033, when the reserve is set aside.
-            The shaded band is the lowest to highest percentile you asked for. A percentile is a rank inside this seeded sample, not a forecast.
+            Each shaded fan pairs a low percentile with the matching high percentile. A percentile is a rank inside this seeded sample, not a forecast.
           </p>
           <div className="table-wrap">
             <table>
@@ -124,25 +120,36 @@ export function ProjectionsPanel() {
             </table>
           </div>
           <p className="muted">
-            Real wealth is in beginning-of-2026 dollars, using your inflation input: nominal divided by (1+inflation)^(year−2026).
-            Model: {assumptions.returnModel}. Rebalance: {assumptions.rebalance === "annual" ? "annual to the glide path" : "drift"}.
-            Monte Carlo seed {output.monteCarlo?.seed}, {output.monteCarlo?.trials.toLocaleString("en-US")} draws.
+            Real wealth is in beginning-of-2026 dollars: nominal / (1+inflation)^(year−2026).
+            Return model: {assumptions.returnModel}. Shock model: {assumptions.shockModel}. Rebalance: {assumptions.rebalance === "annual" ? "annual to the glide path" : "drift"}.
+            Master seed {output.masterSeed}, stream 1, {output.monteCarlo?.trials.toLocaleString("en-US")} draws.
           </p>
         </>
       ) : null}
+      <SensitivityCard />
       <DisclaimerLine />
     </div>
   );
 }
 
-function endpoint(
-  values: Record<string, number>,
-  percentiles: number[],
-  edge: "low" | "high",
-): number {
-  const keys = percentiles.map(percentileKey).sort((a, b) => Number(a) - Number(b));
-  const key = edge === "low" ? keys[0] : keys[keys.length - 1];
-  return values[key] ?? Number.NaN;
+function fanBands(
+  byYear: { values: Record<string, number> }[],
+  requested: number[],
+): { low: number[]; high: number[]; color: string; name: string }[] {
+  const sorted = [...requested].sort((a, b) => a - b);
+  const colors = ["rgba(30, 51, 72, 0.10)", "rgba(30, 51, 72, 0.18)", "rgba(30, 51, 72, 0.28)"];
+  const bands = [];
+  for (let index = 0; index < Math.floor(sorted.length / 2); index++) {
+    const low = sorted[index];
+    const high = sorted[sorted.length - 1 - index];
+    bands.push({
+      low: byYear.map((row) => row.values[percentileKey(low)] ?? Number.NaN),
+      high: byYear.map((row) => row.values[percentileKey(high)] ?? Number.NaN),
+      color: colors[Math.min(index, colors.length - 1)],
+      name: `p${percentileKey(low)}–p${percentileKey(high)}`,
+    });
+  }
+  return bands;
 }
 
 function midpointKey(percentiles: number[]): string {
