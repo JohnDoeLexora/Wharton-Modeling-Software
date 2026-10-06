@@ -8,7 +8,10 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run",
+    "bend:demo": "bend bend/main.bend",
+    "bend:laws": "bend bend/laws/LAWS.bend",
+    "bend:check": "sh bend/check.sh"
   },
   "dependencies": {
     "react": "^19.1.0",

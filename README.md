@@ -20,6 +20,25 @@ Open the URL Vite prints (usually `http://127.0.0.1:5173`).
 
 `npm run build` typechecks and writes a static bundle to `dist/`.
 
+## Run the Bend engine
+
+The interactive workspace above is unchanged. `bend/` is a second engine, written in [Bend 2](https://bend2.dev) (the `bend` compiler, 2.0.x). It locks the same case arithmetic and checks it with `law` proofs. It does not replace `npm run dev`, and it does not load FinBERT.
+
+Install Bend if `bend version` is missing (`curl -fsSL https://bend-lang.com/install.sh | sh`). This repo was checked with Bend 2.0.35.
+
+```bash
+bend bend/main.bend          # or: npm run bend:demo
+bend bend/laws/LAWS.bend     # or: npm run bend:laws
+sh bend/check.sh             # or: npm run bend:check
+bend --check-only bend/project.bend
+```
+
+`bend bend/main.bend` prints the zero-return, zero-fee scenario table. Beginning-of-2033 wealth is `450000`. The 0-yield ladder is `500000`. The facility residual on that pair is `0`. A counter draw is printed as raw SplitMix64 halves (`draw_hi`, `draw_lo`) for seed 42, stream 1, trial 0, step 2027, dimension 0. That 64-bit word matches `src/core/rng.ts`.
+
+Dollars are whole dollars. Weights and rates are parts per million: `1000000` ppm is 1, so the starter knots `500000 + 500000` sum to 1. The funding sleeve receives the remainder of a rebalance, which keeps the dollar total whole. An F32 shock uses the top 24 bits of the same SplitMix64 word. Quote `draw_hi` and `draw_lo` when a run has to match the TypeScript sample bit for bit.
+
+The Bend projection in the demo uses two sleeves and caller-supplied rates. The flat half-and-half knots are the starting table. Mu, sigma, fees, stress, and facility rules are arguments. The laws in `bend/laws/LAWS.bend` record case facts and arithmetic identities. They do not pick a portfolio.
+
 The in-app **How to model** tab is the same text as [docs/HOW_TO_MODELING.md](docs/HOW_TO_MODELING.md). Read that before treating a chart as a conclusion. It covers liability versus growth capital, discounting the ten $50,000 payments, scenarios versus Monte Carlo, glide paths, communication ranges, how the modules map onto Trading Notes / the IPS / the Final Report, and what FinBERT is for.
 
 ## What you can do in the app
@@ -77,8 +96,11 @@ To rerun someone else’s package: check out the commit named in the file, open 
 
 | Path | What it is |
 | --- | --- |
-| `src/core/` | Pure TypeScript math. No React. |
+| `src/core/` | Pure TypeScript math. No React. The interactive toolkit runs this. |
 | `src/ui/` | The workspace. |
+| `bend/` | Bend 2 engine: case facts, glide, projection, reserve, facility, streams. |
+| `bend/laws/LAWS.bend` | Proofs for the locked cash flows, the 450,000 path, the 500,000 ladder, and weight sums. |
+| `bend/main.bend` | Deterministic scenario table. |
 | `docs/HOW_TO_MODELING.md` | Algorithms and how to use them on this case. |
 | `services/finbert/` | Optional local scoring service. |
 | `case-materials/` | Official competition PDFs and text extracts. They are reference material, not part of the model. |
@@ -87,9 +109,10 @@ To rerun someone else’s package: check out the commit named in the file, open 
 
 ```bash
 npm test
+bend bend/laws/LAWS.bend
 ```
 
-The tests lock the case contributions, the annuity-due present value, the ladder roll-forward (funded ratio near 1, nothing left after the 2042 payment), scenario compounding, drift versus annual rebalance, seeded Monte Carlo, and the rule that a facility contribution cannot be taken from the operating reserve. They also lock the shared random streams (the conditional band reuses portfolio shocks; the reserve shortfall is a different stream at the same trial index), correlation repair, the assumptions hash, the run package footnote, and the split between μ and the scenario base return.
+`npm test` locks the TypeScript engine. `bend bend/laws/LAWS.bend` locks the Bend engine. The tests lock the case contributions, the annuity-due present value, the ladder roll-forward (funded ratio near 1, nothing left after the 2042 payment), scenario compounding, drift versus annual rebalance, seeded Monte Carlo, and the rule that a facility contribution cannot be taken from the operating reserve. They also lock the shared random streams (the conditional band reuses portfolio shocks; the reserve shortfall is a different stream at the same trial index), correlation repair, the assumptions hash, the run package footnote, and the split between μ and the scenario base return.
 
 ## Starting numbers
 

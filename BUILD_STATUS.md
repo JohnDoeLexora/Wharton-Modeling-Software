@@ -1,6 +1,53 @@
 # Build status
 
-Version 2 of the Gao modeling toolkit is in this repository. It is a workspace for exploring the Laura Gao case. It does not contain a recommended portfolio, reserve, facility contribution, or co-sponsor range.
+The repository has two engines for the Laura Gao case. The TypeScript workspace is still the interactive toolkit (`npm run dev`). The Bend 2 package in `bend/` is an additional proved core. Neither one contains a recommended portfolio, reserve, facility contribution, or co-sponsor range.
+
+Checked on 2026-10-06.
+
+## Bend engine
+
+Bend 2.0.35 (`bend version`). Sources live in `bend/`. Laws live in `bend/laws/LAWS.bend`. The TypeScript files were left in place.
+
+- `bend/case.bend` locks year N = 2026+N, the 300,000 and 150,000 contributions, ten 50,000 payments from 2033 through 2042, and a WInS profit of 0.
+- `bend/fix.bend` is the fixed-point convention: whole dollars, and parts per million where 1,000,000 ppm is 1. `muldiv` is floor of a 64-bit product.
+- `bend/glide.bend` holds two sleeves. The starter knots are 500,000 / 500,000 at 2027 and 2033. Each sums to 1,000,000 ppm. Callers can pass other knots; the laws check the sums of these knots and of the interpolated years 2027, 2030, 2033, and 2042.
+- `bend/project.bend` walks 2027 through 2042. Annual rebalance gives the funding sleeve the remainder so dollars are conserved. Drift splits only the new contribution. The zero-return, zero-fee path is a caller input (`zero_returns`), and both modes report beginning-of-2033 wealth 450,000.
+- `bend/reserve.bend` is backward induction. At a 0 yield the ladder is 500,000, and rolling that reserve forward ends at 0. A surplus margin is a caller-supplied ppm.
+- `bend/facility.bend` takes a gift only from wealth above the reserve. On 450,000 against 500,000 the residual and the contribution are 0.
+- `bend/rng.bend` is SplitMix64 on `(seed, stream, trial, step, dimension)`. Stream ids are 1, 2, and 3. The 2031–2032 conditional band reuses stream 1. The raw 64-bit word matches `src/core/rng.ts`. F32 uniforms use the top 24 bits of that word.
+- `bend/corr.bend` stores one off-diagonal in ppm, clips it at 999,000, and applies a caller-supplied stress. The diagonal is 1,000,000 by construction, so the matrix stays symmetric.
+- `bend/shock.bend` maps caller-supplied mu and sigma through a normal or lognormal F32 formula. The scenario table does not read it.
+
+Commands:
+
+```bash
+bend bend/main.bend
+bend bend/laws/LAWS.bend
+sh bend/check.sh
+npm run dev
+```
+
+`bend bend/main.bend` prints `boy_2033_annual 450000`, `boy_2033_drift 450000`, `ladder_yield_0 500000`, `roll_end_yield_0 0`, and `residual 0`. The audit draw for seed 42, stream 1, trial 0, step 2027, dimension 0 is `draw_hi 2195427346` and `draw_lo 1420824054`.
+
+### Verification done here for Bend
+
+- `bend version` reported `bend 2.0.35`.
+- `bend --check-only` on `fix`, `case`, `glide`, `reserve`, `facility`, `rng`, `corr`, `shock`, `project`, and `main` exited 0.
+- `bend bend/laws/LAWS.bend` printed `ALL PROOFS CHECK` and exited 0. The file includes the contribution schedule, the ten-payment schedule, the 450,000 zero path (annual and drift), knot sums of 1,000,000 ppm, the 500,000 ladder, the facility residual of 0, stream ids, and three frozen SplitMix64 words.
+- `bend bend/main.bend` printed the locked lines above.
+- The React toolkit was not removed. On 2026-10-06, `npm test` passed 48 tests (`engine.test.ts`, `streams.test.ts`, `guide.test.ts`).
+
+### Bend limits
+
+- Two sleeves. The TypeScript workspace can edit a longer sleeve list.
+- Whole dollars and truncating ppm division. A 5% TypeScript path still uses IEEE floats (`docs/HOW_TO_MODELING.md`). The Bend demo does not reprint that float path.
+- F32 Box–Muller is not bit-identical to the JavaScript `Number` normal. The shared audit value is the 64-bit SplitMix word.
+- The proved demo is one deterministic scenario, plus the stream function. It does not print a multi-trial percentile fan, a sensitivity table, or a run package. Those stay in the TypeScript app.
+- No WInS connection, no bond CUSIPs, no tax model, and no optimizer.
+
+## What changed in V2
+
+Version 2 of the TypeScript toolkit is in this repository. It is a workspace for exploring the Laura Gao case. It does not contain a recommended portfolio, reserve, facility contribution, or co-sponsor range.
 
 Checked on 2026-10-02.
 
