@@ -21,8 +21,10 @@ export function projectionsCsv(output: ModelOutput): string {
     "year_index",
     "contribution",
     "wealth_start",
+    "wealth_start_htm",
     "real_wealth_start",
     "year_return",
+    "year_return_htm",
     "policy_weights",
     "actual_weights",
   ];
@@ -36,8 +38,10 @@ export function projectionsCsv(output: ModelOutput): string {
         point.yearIndex,
         point.contribution,
         point.wealthStart,
+        point.wealthStartHtm,
         point.realWealthStart,
         point.yearReturn,
+        point.yearReturnHtm,
         point.policyWeights.map((weight) => weight.toFixed(6)).join("|"),
         point.actualWeights.map((weight) => weight.toFixed(6)).join("|"),
       ]);

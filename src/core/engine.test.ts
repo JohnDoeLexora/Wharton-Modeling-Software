@@ -18,9 +18,8 @@ import type { Assumptions } from "./types";
 
 function singleSleeve(rate: number, sigma = 0): Assumptions {
   const assumptions = zeroAssumptions();
-  assumptions.sleeves = [
-    { id: "only", name: "Only sleeve", mu: rate, sigma, base: rate, bull: rate, bear: rate },
-  ];
+  const baseSleeve = assumptions.sleeves[0];
+  assumptions.sleeves = [{ ...baseSleeve, id: "only", name: "Only sleeve", mu: rate, sigma, base: rate, bull: rate, bear: rate }];
   assumptions.glide = [{ year: 2027, weights: [1] }];
   assumptions.correlation = [[1]];
   assumptions.trials = 80;

@@ -2,6 +2,7 @@ import { caseContribution, LAST_PROJECTION_YEAR, FIRST_PROJECTION_YEAR, yearInde
 import { prepareCorrelation } from "./correlation";
 import { weightsAtYear } from "./glide";
 import { correlatedShocks, dot, normalizeSeed, simpleReturn, sum } from "./math";
+import { priceTrial, usesPricedModel, type YearSlice } from "./pricing";
 import { STREAM, standardNormal, unitInterval } from "./rng";
 import type { Assumptions, ReturnModel, ScenarioName, Sleeve, YearPoint } from "./types";
 
@@ -25,6 +26,8 @@ export interface PathInput {
   trial: number;
   /** Precomputed Cholesky factor of the stressed correlation. Null draws sleeves independently. */
   factor: number[][] | null;
+  /** Full assumption set. Priced sleeves read the rate path, the basket, and costs from here. */
+  source?: Assumptions;
 }
 
 function sleeveScenarioReturn(sleeve: Sleeve, scenario: ScenarioName): number {
@@ -38,22 +41,17 @@ function sleeveScenarioReturn(sleeve: Sleeve, scenario: ScenarioName): number {
  * Pass `factor` when the caller has already factored the correlation; otherwise it is computed.
  */
 export function mcSleeveReturns(
-  assumptions: Pick<
-    Assumptions,
-    | "sleeves"
-    | "seed"
-    | "returnModel"
-    | "normalFloor"
-    | "shockModel"
-    | "bootstrapHistory"
-    | "blockLength"
-    | "correlation"
-    | "correlationStress"
-  >,
+  assumptions: Assumptions,
   trial: number,
   calendarYear: number,
   factor?: number[][] | null,
 ): number[] {
+  if (!parametricOnly(assumptions)) {
+    const resolved =
+      factor === undefined ? prepareCorrelation(assumptions.correlation, assumptions.correlationStress).factor : factor;
+    const slice = priceTrial({ assumptions, mode: "mc", trial, factor: resolved }).byYear.get(calendarYear);
+    if (slice) return slice.mtm;
+  }
   if (assumptions.shockModel === "block_bootstrap") {
     return bootstrapSleeveReturns(assumptions, trial, calendarYear);
   }
@@ -67,6 +65,10 @@ export function mcSleeveReturns(
   return assumptions.sleeves.map((sleeve, index) =>
     simpleReturn(sleeve.mu, sleeve.sigma, shocks[index] ?? 0, assumptions.returnModel, assumptions.normalFloor),
   );
+}
+
+function parametricOnly(assumptions: Assumptions): boolean {
+  return assumptions.shockModel === "block_bootstrap" || !usesPricedModel(assumptions.sleeves);
 }
 
 function bootstrapSleeveReturns(
@@ -94,22 +96,17 @@ function drawReturns(input: PathInput, calendarYear: number): number[] {
     const scenario = input.scenario ?? "base";
     return input.sleeves.map((sleeve) => sleeveScenarioReturn(sleeve, scenario));
   }
-  return mcSleeveReturns(
-    {
-      sleeves: input.sleeves,
-      seed: input.seed,
-      returnModel: input.returnModel,
-      normalFloor: input.normalFloor,
-      shockModel: input.shockModel,
-      bootstrapHistory: input.bootstrapHistory,
-      blockLength: input.blockLength,
-      correlation: input.correlation,
-      correlationStress: input.correlationStress,
-    },
-    input.trial,
-    calendarYear,
-    input.factor,
-  );
+  if (!input.source) {
+    return input.sleeves.map(() => 0);
+  }
+  return mcSleeveReturns(input.source, input.trial, calendarYear, input.factor);
+}
+
+function turnoverCost(previous: number[] | null, policy: number[], bps: number): number {
+  if (!(bps > 0) || !previous) return 0;
+  let turnover = 0;
+  for (let i = 0; i < policy.length; i++) turnover += Math.abs(policy[i] - (previous[i] ?? 0));
+  return (0.5 * turnover * bps) / 10_000;
 }
 
 /**
@@ -119,10 +116,52 @@ function drawReturns(input: PathInput, calendarYear: number): number[] {
  * during 2042, because the case horizon ends at the 2042 payment date.
  * The portfolio is not split into a reserve or a facility gift here.
  */
+function pushPoint(
+  rows: YearPoint[],
+  input: PathInput,
+  year: number,
+  contribution: number,
+  wealthStart: number,
+  wealthStartHtm: number,
+  policy: number[],
+  actualWeights: number[],
+  yearReturn: number | null,
+  yearReturnHtm: number | null,
+  sleeveReturns: number[] | null,
+  priceComponents: number[] | null,
+  cashYield: number | null,
+): void {
+  rows.push({
+    calendarYear: year,
+    yearIndex: yearIndex(year),
+    contribution,
+    wealthStart,
+    wealthStartHtm,
+    realWealthStart: wealthStart / Math.pow(1 + input.inflation, yearIndex(year)),
+    policyWeights: policy.slice(),
+    actualWeights,
+    yearReturn,
+    yearReturnHtm,
+    sleeveReturns,
+    priceComponents,
+    cashYield,
+  });
+}
+
 export function projectPath(input: PathInput): YearPoint[] {
   const count = input.sleeves.length;
+  const priced =
+    input.source !== undefined &&
+    input.shockModel !== "block_bootstrap" &&
+    usesPricedModel(input.sleeves);
+  if (priced && input.source) {
+    return projectPriced(input, input.source);
+  }
+
   let balances = Array(count).fill(0);
   const rows: YearPoint[] = [];
+  let previousWeights: number[] | null = null;
+  const bps = input.source?.costs.transactionCostBps ?? 0;
 
   for (let year = FIRST_PROJECTION_YEAR; year <= LAST_PROJECTION_YEAR; year++) {
     const contribution = caseContribution(year);
@@ -130,14 +169,14 @@ export function projectPath(input: PathInput): YearPoint[] {
     if (input.rebalance === "annual") {
       const total = sum(balances) + contribution;
       balances = policy.map((weight) => total * weight);
+      const cost = turnoverCost(previousWeights, policy, bps);
+      if (cost > 0) balances = balances.map((balance) => balance * (1 - cost));
     } else {
-      for (let i = 0; i < count; i++) balances[i] += contribution * policy[i];
+      for (let i = 0; i < count; i++) balances[i] += contribution * (policy[i] ?? 0);
     }
 
     const wealthStart = sum(balances);
-    const actualWeights = balances.map((balance, i) =>
-      wealthStart > 0 ? balance / wealthStart : policy[i] ?? 0,
-    );
+    const actualWeights = balances.map((balance, i) => (wealthStart > 0 ? balance / wealthStart : policy[i] ?? 0));
 
     let yearReturn: number | null = null;
     let sleeveReturns: number[] | null = null;
@@ -147,17 +186,95 @@ export function projectPath(input: PathInput): YearPoint[] {
       balances = balances.map((balance, i) => balance * (1 + sleeveReturns![i]));
     }
 
-    rows.push({
-      calendarYear: year,
-      yearIndex: yearIndex(year),
+    pushPoint(
+      rows,
+      input,
+      year,
       contribution,
       wealthStart,
-      realWealthStart: wealthStart / Math.pow(1 + input.inflation, yearIndex(year)),
-      policyWeights: policy.slice(),
+      wealthStart,
+      policy,
       actualWeights,
       yearReturn,
+      yearReturn,
       sleeveReturns,
-    });
+      sleeveReturns ? sleeveReturns.map(() => 0) : null,
+      null,
+    );
+    previousWeights = actualWeights;
+  }
+
+  return rows;
+}
+
+function projectPriced(input: PathInput, source: Assumptions): YearPoint[] {
+  const count = input.sleeves.length;
+  const table = priceTrial({
+    assumptions: source,
+    mode: input.mode,
+    scenario: input.scenario,
+    trial: input.trial,
+    factor: input.factor,
+  });
+  let balances = Array(count).fill(0);
+  let balancesHtm = Array(count).fill(0);
+  const rows: YearPoint[] = [];
+  let previousWeights: number[] | null = null;
+  const bps = source.costs.transactionCostBps;
+
+  for (let year = FIRST_PROJECTION_YEAR; year <= LAST_PROJECTION_YEAR; year++) {
+    const contribution = caseContribution(year);
+    const policy = weightsAtYear(input.glide, year);
+    if (input.rebalance === "annual") {
+      const total = sum(balances) + contribution;
+      const totalHtm = sum(balancesHtm) + contribution;
+      balances = policy.map((weight) => total * weight);
+      balancesHtm = policy.map((weight) => totalHtm * weight);
+      const cost = turnoverCost(previousWeights, policy, bps);
+      if (cost > 0) {
+        balances = balances.map((balance) => balance * (1 - cost));
+        balancesHtm = balancesHtm.map((balance) => balance * (1 - cost));
+      }
+    } else {
+      for (let i = 0; i < count; i++) {
+        balances[i] += contribution * (policy[i] ?? 0);
+        balancesHtm[i] += contribution * (policy[i] ?? 0);
+      }
+    }
+
+    const wealthStart = sum(balances);
+    const wealthStartHtm = sum(balancesHtm);
+    const actualWeights = balances.map((balance, i) => (wealthStart > 0 ? balance / wealthStart : policy[i] ?? 0));
+    const slice: YearSlice | undefined = table.byYear.get(year);
+    let yearReturn: number | null = null;
+    let yearReturnHtm: number | null = null;
+    let sleeveReturns: number[] | null = null;
+    let priceComponents: number[] | null = null;
+    if (year < LAST_PROJECTION_YEAR && slice) {
+      sleeveReturns = slice.mtm;
+      priceComponents = slice.price;
+      yearReturn = wealthStart > 0 ? dot(actualWeights, slice.mtm) : dot(policy, slice.mtm);
+      yearReturnHtm = wealthStartHtm > 0 ? dot(actualWeights, slice.htm) : dot(policy, slice.htm);
+      balances = balances.map((balance, i) => balance * (1 + slice.mtm[i]));
+      balancesHtm = balancesHtm.map((balance, i) => balance * (1 + slice.htm[i]));
+    }
+
+    pushPoint(
+      rows,
+      input,
+      year,
+      contribution,
+      wealthStart,
+      wealthStartHtm,
+      policy,
+      actualWeights,
+      yearReturn,
+      yearReturnHtm,
+      sleeveReturns,
+      priceComponents,
+      slice?.cashYield ?? null,
+    );
+    previousWeights = policy.slice();
   }
 
   return rows;

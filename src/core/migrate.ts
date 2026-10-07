@@ -1,14 +1,140 @@
-import { zeroAssumptions } from "./defaults";
+import { satelliteCatalog } from "./basket";
+import { newSleeve, zeroAssumptions } from "./defaults";
 import { assumptionsHash, type LedgerEntry } from "./ledger";
+import { zeroEquityParams, zeroRateParams } from "./rates";
 import { streamManifest } from "./rng";
-import type { Assumptions, ResearchNote, ShockModel } from "./types";
+import type {
+  Assumptions,
+  BasketName,
+  EquityParams,
+  MixSpec,
+  RateParams,
+  RateRegime,
+  ResearchNote,
+  ShockModel,
+  Sleeve,
+  SleeveKind,
+} from "./types";
 
-/** Read a v1 or v2 assumptions object and return a schemaVersion 2 snapshot. Missing fields get the zero-default value, not a market view. */
+const KINDS: SleeveKind[] = ["parametric", "tbill", "intermediate", "long_treasury", "credit", "equity_index", "basket"];
+const REGIMES: RateRegime[] = ["rising", "flat", "falling", "shock-up", "stagflation"];
+
+function finite(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function hydrateSleeve(raw: unknown, fallback: Sleeve): Sleeve {
+  if (!raw || typeof raw !== "object") return fallback;
+  const source = raw as Partial<Sleeve>;
+  const kind = KINDS.includes(source.kind as SleeveKind) ? (source.kind as SleeveKind) : "parametric";
+  const blank = newSleeve(
+    typeof source.id === "string" && source.id ? source.id : fallback.id,
+    typeof source.name === "string" ? source.name : fallback.name,
+    finite(source.mu, fallback.mu),
+    finite(source.sigma, fallback.sigma),
+    finite(source.base, fallback.base),
+    finite(source.bull, fallback.bull),
+    finite(source.bear, fallback.bear),
+  );
+  return {
+    ...blank,
+    kind,
+    duration: finite(source.duration, 0),
+    convexity: finite(source.convexity, 0),
+    expenseRatio: finite(source.expenseRatio, 0),
+    spread: finite(source.spread, 0),
+    defaultProb: finite(source.defaultProb, 0),
+    recovery: finite(source.recovery, 0),
+    spreadBeta: finite(source.spreadBeta, 0),
+    tradable: typeof source.tradable === "boolean" ? source.tradable : true,
+    winsEligible: typeof source.winsEligible === "boolean" ? source.winsEligible : true,
+    studentDf: finite(source.studentDf, 5),
+    issuer: typeof source.issuer === "string" ? source.issuer : "",
+  };
+}
+
+function hydrateRates(raw: unknown, fallback: RateParams): RateParams {
+  if (!raw || typeof raw !== "object") return fallback;
+  const source = raw as Partial<RateParams>;
+  return {
+    ...fallback,
+    regime: REGIMES.includes(source.regime as RateRegime) ? (source.regime as RateRegime) : fallback.regime,
+    r0: finite(source.r0, fallback.r0),
+    kappa: finite(source.kappa, fallback.kappa),
+    theta: finite(source.theta, fallback.theta),
+    sigma: finite(source.sigma, fallback.sigma),
+    intermediatePremium: finite(source.intermediatePremium, fallback.intermediatePremium),
+    longPremium: finite(source.longPremium, fallback.longPremium),
+    slope: finite(source.slope, fallback.slope),
+    equityRateCorr: finite(source.equityRateCorr, fallback.equityRateCorr),
+    driftPerYear: finite(source.driftPerYear, fallback.driftPerYear),
+    driftYears: finite(source.driftYears, fallback.driftYears),
+    levelShock: finite(source.levelShock, fallback.levelShock),
+  };
+}
+
+function hydrateEquity(raw: unknown, fallback: EquityParams): EquityParams {
+  if (!raw || typeof raw !== "object") return fallback;
+  const source = raw as Partial<EquityParams>;
+  return {
+    studentDf: finite(source.studentDf, fallback.studentDf),
+    marketMu: finite(source.marketMu, fallback.marketMu),
+    marketSigma: finite(source.marketSigma, fallback.marketSigma),
+    regimeDrag: finite(source.regimeDrag, fallback.regimeDrag),
+    sectorSigma: finite(source.sectorSigma, fallback.sectorSigma),
+  };
+}
+
+function hydrateName(raw: unknown): BasketName | null {
+  if (!raw || typeof raw !== "object") return null;
+  const source = raw as Partial<BasketName>;
+  if (typeof source.ticker !== "string" || source.ticker.length === 0) return null;
+  const blank = satelliteCatalog()[0];
+  return {
+    ...blank,
+    id: typeof source.id === "string" && source.id ? source.id : source.ticker.toLowerCase(),
+    ticker: source.ticker,
+    name: typeof source.name === "string" ? source.name : source.ticker,
+    sector: typeof source.sector === "string" ? source.sector : "broad",
+    linkNote: typeof source.linkNote === "string" ? source.linkNote : "Team",
+    taiwan: source.taiwan === true,
+    alpha: finite(source.alpha, 0),
+    beta: finite(source.beta, 1),
+    idioSigma: finite(source.idioSigma, 0),
+    studentDf: finite(source.studentDf, 5),
+    jumpProb: finite(source.jumpProb, 0),
+    jumpMean: finite(source.jumpMean, 0),
+    fxSigma: finite(source.fxSigma, 0),
+    geoJumpProb: finite(source.geoJumpProb, 0),
+    geoJumpMean: finite(source.geoJumpMean, 0),
+    sectorBeta: finite(source.sectorBeta, 0),
+    weight: finite(source.weight, 0),
+    expenseRatio: finite(source.expenseRatio, 0),
+    assumptionNote: typeof source.assumptionNote === "string" ? source.assumptionNote : blank.assumptionNote,
+  };
+}
+
+function hydrateMix(raw: unknown): MixSpec | null {
+  if (!raw || typeof raw !== "object") return null;
+  const source = raw as Partial<MixSpec>;
+  if (!Array.isArray(source.weights2027) || !Array.isArray(source.weights2033)) return null;
+  return {
+    id: typeof source.id === "string" ? source.id : "mix",
+    name: typeof source.name === "string" ? source.name : "Mix",
+    weights2027: source.weights2027.map((value) => finite(value, 0)),
+    weights2033: source.weights2033.map((value) => finite(value, 0)),
+  };
+}
+
+/** Read a v1, v2, or v3 assumptions object and return a schemaVersion 3 snapshot. Missing fields get the zero-default value, not a market view. */
 export function migrateAssumptions(raw: unknown): Assumptions {
   const base = zeroAssumptions();
   if (!raw || typeof raw !== "object") return base;
   const source = raw as Partial<Assumptions>;
-  const sleeves = Array.isArray(source.sleeves) && source.sleeves.length > 0 ? source.sleeves : base.sleeves;
+  const sleeves =
+    Array.isArray(source.sleeves) && source.sleeves.length > 0
+      ? source.sleeves.map((sleeve, index) => hydrateSleeve(sleeve, base.sleeves[index] ?? base.sleeves[0]))
+      : base.sleeves;
   const glide = Array.isArray(source.glide) && source.glide.length > 0 ? source.glide : base.glide;
   const shockModel: ShockModel = source.shockModel === "block_bootstrap" ? "block_bootstrap" : "parametric";
   const history = Array.isArray(source.bootstrapHistory)
@@ -45,8 +171,20 @@ export function migrateAssumptions(raw: unknown): Assumptions {
           ? source.facility.rules
           : base.facility.rules,
     },
-    schemaVersion: 2,
-    schema: 2,
+    rates: hydrateRates(source.rates, zeroRateParams()),
+    equity: hydrateEquity(source.equity, zeroEquityParams()),
+    basket: Array.isArray(source.basket)
+      ? source.basket.map(hydrateName).filter((name): name is BasketName => name !== null)
+      : satelliteCatalog(),
+    costs: {
+      transactionCostBps: finite(
+        source.costs && typeof source.costs === "object" ? (source.costs as { transactionCostBps?: unknown }).transactionCostBps : undefined,
+        0,
+      ),
+    },
+    mixes: Array.isArray(source.mixes) ? source.mixes.map(hydrateMix).filter((mix): mix is MixSpec => mix !== null) : [],
+    schemaVersion: 3,
+    schema: 3,
   };
 }
 
@@ -69,7 +207,7 @@ function migrateEntry(raw: unknown): LedgerEntry | null {
     name: entry.name,
     savedAt: typeof entry.savedAt === "string" ? entry.savedAt : "",
     assumptionsHash: hash,
-    schemaVersion: 2,
+    schemaVersion: 3,
     seed: typeof entry.seed === "number" ? entry.seed : assumptions.seed,
     trials: typeof entry.trials === "number" ? entry.trials : assumptions.trials,
     shockModel: assumptions.shockModel,

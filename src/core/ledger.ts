@@ -24,7 +24,7 @@ export interface LedgerEntry {
   savedAt: string;
   /** SHA-256 of the canonical JSON of `assumptions`. Identifies inputs, not the code version. */
   assumptionsHash: string;
-  schemaVersion: 2;
+  schemaVersion: 3;
   seed: number;
   trials: number;
   shockModel: Assumptions["shockModel"];
@@ -71,7 +71,7 @@ export function createLedgerEntry(
     name: name.trim() || "Untitled run",
     savedAt,
     assumptionsHash: assumptionsHashValue,
-    schemaVersion: 2,
+    schemaVersion: 3,
     seed: output.masterSeed,
     trials: assumptions.trials,
     shockModel: assumptions.shockModel,

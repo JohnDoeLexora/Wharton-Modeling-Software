@@ -8,8 +8,8 @@ import type { SensitivityReport } from "./core/sensitivity";
 import { runSensitivity } from "./core/sensitivity";
 import type { Assumptions, ModelOutput, ResearchNote } from "./core/types";
 
-const KEY = "gao-toolkit-v2";
-const PREVIOUS_KEY = "gao-toolkit-v1";
+const KEY = "gao-toolkit-v3";
+const PREVIOUS_KEYS = ["gao-toolkit-v2", "gao-toolkit-v1"];
 
 interface Store {
   assumptions: Assumptions;
@@ -38,8 +38,10 @@ function load(): { assumptions: Assumptions; notes: ResearchNote[]; ledger: Ledg
   try {
     const current = localStorage.getItem(KEY);
     if (current) return migrateStoredWorkspace(JSON.parse(current));
-    const previous = localStorage.getItem(PREVIOUS_KEY);
-    if (previous) return migrateStoredWorkspace(JSON.parse(previous));
+    for (const key of PREVIOUS_KEYS) {
+      const previous = localStorage.getItem(key);
+      if (previous) return migrateStoredWorkspace(JSON.parse(previous));
+    }
   } catch {
     /* Storage can be full or unreadable. Start from the zero case. */
   }
@@ -72,7 +74,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     try {
-      localStorage.setItem(KEY, JSON.stringify({ v: 2, assumptions, notes, ledger }));
+      localStorage.setItem(KEY, JSON.stringify({ v: 3, assumptions, notes, ledger }));
     } catch {
       /* A full browser can refuse storage. The session still runs. */
     }
@@ -181,7 +183,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       savePending,
       sensitivity,
       sensitivityPending,
-      update: (fn) => setAssumptions((prev) => ({ ...fn(prev), tag: "edited", schemaVersion: 2, schema: 2 })),
+      update: (fn) => setAssumptions((prev) => ({ ...fn(prev), tag: "edited", schemaVersion: 3, schema: 3 })),
       replace: (next) => setAssumptions(next),
       setNotes,
       resetZeros: () => setAssumptions(zeroAssumptions()),

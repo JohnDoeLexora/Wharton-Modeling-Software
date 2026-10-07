@@ -17,6 +17,15 @@ import { normalizeSeed } from "./math";
  * Stream 3, bootstrap: step is the block index, dimension 0. Used only when
  * the shock model is block bootstrap. The uniform picks a starting row.
  *
+ * Stream 4, rates: step is the calendar year, dimension 0 is the short-rate shock.
+ * One path per trial. Compared mixes share it (common random numbers).
+ *
+ * Stream 5, credit: step is the calendar year, dimension is the sleeve index.
+ * A uniform decides whether that credit sleeve defaults.
+ *
+ * Stream 6, idiosyncratic: step is the calendar year. Dimensions are spaced by name
+ * for the Student-t residual, the jump, the FX shock, and the sector factor.
+ *
  * The conditional 2031→2033 band does not have a stream of its own. It reuses
  * stream 1 at calendar years 2031 and 2032 and the same trial index
  * (common random numbers). Wealth is restarted at the anchor and at the 2031
@@ -26,6 +35,9 @@ export const STREAM = {
   portfolio: 1,
   reserve: 2,
   bootstrap: 3,
+  rates: 4,
+  credit: 5,
+  idio: 6,
 } as const;
 
 export type StreamId = (typeof STREAM)[keyof typeof STREAM];
@@ -86,6 +98,9 @@ export interface StreamManifest {
   portfolio: { id: number; step: string; dimension: string };
   reserve: { id: number; step: string; dimension: string };
   bootstrap: { id: number; step: string; dimension: string };
+  rates: { id: number; step: string; dimension: string };
+  credit: { id: number; step: string; dimension: string };
+  idio: { id: number; step: string; dimension: string };
   conditional: string;
 }
 
@@ -109,6 +124,21 @@ export function streamManifest(masterSeed: number): StreamManifest {
       id: STREAM.bootstrap,
       step: "block index floor((calendarYear - 2027) / blockLength)",
       dimension: "0, uniform that picks the block start",
+    },
+    rates: {
+      id: STREAM.rates,
+      step: "calendar year of the short-rate shock, 2027 through 2041",
+      dimension: "0. One path per trial, shared by every mix under this seed",
+    },
+    credit: {
+      id: STREAM.credit,
+      step: "calendar year",
+      dimension: "sleeve index. A uniform below the default probability is a default",
+    },
+    idio: {
+      id: STREAM.idio,
+      step: "calendar year",
+      dimension: "name index, jump, FX, and sector factor. Not the market factor",
     },
     conditional:
       "Reuses portfolio stream 1 at calendar years 2031 and 2032, same trial index. " +

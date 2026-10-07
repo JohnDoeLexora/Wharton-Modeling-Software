@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { cholesky } from "./math";
 import { jacobiEigen, minEigenvalue, prepareCorrelation } from "./correlation";
-import { teachingAssumptions, zeroAssumptions } from "./defaults";
+import { newSleeve, teachingAssumptions, zeroAssumptions } from "./defaults";
 import { sha256Hex } from "./hash";
 import { caseLiabilityPv, caseLiabilitySchedule } from "./liability";
 import { assumptionsHash, createLedgerEntry, diffAssumptions } from "./ledger";
@@ -17,9 +17,8 @@ import type { Assumptions } from "./types";
 
 function singleSleeve(rate: number, sigma = 0): Assumptions {
   const assumptions = zeroAssumptions();
-  assumptions.sleeves = [
-    { id: "only", name: "Only sleeve", mu: rate, sigma, base: rate, bull: rate, bear: rate },
-  ];
+  const baseSleeve = assumptions.sleeves[0];
+  assumptions.sleeves = [{ ...baseSleeve, id: "only", name: "Only sleeve", mu: rate, sigma, base: rate, bull: rate, bear: rate }];
   assumptions.glide = [{ year: 2027, weights: [1] }];
   assumptions.correlation = [[1]];
   assumptions.trials = 50;
@@ -133,9 +132,9 @@ describe("correlation stress and repair", () => {
 
     const assumptions = zeroAssumptions();
     assumptions.sleeves = [
-      { id: "a", name: "A", mu: 0.04, sigma: 0.1, base: 0.04, bull: 0.04, bear: 0.04 },
-      { id: "b", name: "B", mu: 0.03, sigma: 0.08, base: 0.03, bull: 0.03, bear: 0.03 },
-      { id: "c", name: "C", mu: 0.02, sigma: 0.05, base: 0.02, bull: 0.02, bear: 0.02 },
+      newSleeve("a", "A", 0.04, 0.1, 0.04, 0.04, 0.04),
+      newSleeve("b", "B", 0.03, 0.08, 0.03, 0.03, 0.03),
+      newSleeve("c", "C", 0.02, 0.05, 0.02, 0.02, 0.02),
     ];
     assumptions.glide = [{ year: 2027, weights: [1 / 3, 1 / 3, 1 / 3] }];
     assumptions.correlation = matrix;
@@ -165,7 +164,7 @@ describe("schema migration, ledger, and the run package", () => {
     expect(sha256Hex("")).toBe("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
   });
 
-  it("migrates a version-1 assumptions object onto schema 2", () => {
+  it("migrates a version-1 assumptions object onto schema 3", () => {
     const current = zeroAssumptions();
     const raw = JSON.parse(JSON.stringify(current)) as Record<string, unknown>;
     delete raw.schemaVersion;
@@ -175,15 +174,15 @@ describe("schema migration, ledger, and the run package", () => {
     delete raw.blockLength;
     raw.schema = 1;
     const migrated = migrateAssumptions(raw);
-    expect(migrated.schemaVersion).toBe(2);
-    expect(migrated.schema).toBe(2);
+    expect(migrated.schemaVersion).toBe(3);
+    expect(migrated.schema).toBe(3);
     expect(migrated.correlationStress).toBe(0);
     expect(migrated.shockModel).toBe("parametric");
     expect(migrated.blockLength).toBe(1);
     expect(migrated.bootstrapHistory).toEqual([]);
     expect(runModel(migrated).errors).toEqual([]);
     const stored = migrateStoredWorkspace({ v: 1, assumptions: raw, notes: [], ledger: [] });
-    expect(stored.assumptions.schemaVersion).toBe(2);
+    expect(stored.assumptions.schemaVersion).toBe(3);
     expect(stored.ledger).toEqual([]);
   });
 
@@ -194,7 +193,7 @@ describe("schema migration, ledger, and the run package", () => {
     assumptions.seed = 99;
     expect(entry.assumptions.seed).toBe(42);
     expect(entry.assumptionsHash).toBe(assumptionsHash(entry.assumptions));
-    expect(entry.schemaVersion).toBe(2);
+    expect(entry.schemaVersion).toBe(3);
     const diff = diffAssumptions(entry.assumptions, assumptions);
     expect(diff.rows.some((row) => row.path === "seed")).toBe(true);
     expect(diff.rows.some((row) => row.path === "sleeves[0].mu")).toBe(false);
@@ -205,7 +204,7 @@ describe("schema migration, ledger, and the run package", () => {
     const output = runModel(assumptions);
     const pack = buildRunPackage(assumptions, output, [], "2026-10-02T00:00:00.000Z");
     expect(pack.packageVersion).toBe(1);
-    expect(pack.software.version).toBe("2.0.0");
+    expect(pack.software.version).toBe("3.0.0");
     expect(pack.assumptionsHash).toHaveLength(64);
     expect(pack.winsTradingPnlIncluded).toBe(false);
     expect(pack.finbertInProjection).toBe(false);
@@ -294,7 +293,7 @@ describe("numerical hygiene", () => {
     const output = runModel(assumptions);
     expect(output.errors.length).toBeGreaterThan(0);
     expect(output.monteCarlo).toBeNull();
-    expect(output.schemaVersion).toBe(2);
+    expect(output.schemaVersion).toBe(3);
   });
 
   it("resamples only the typed history in a block bootstrap", () => {

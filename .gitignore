@@ -10,3 +10,4 @@ __pycache__/
 services/finbert/.cache/
 *.tsbuildinfo
 .vite/
+out/

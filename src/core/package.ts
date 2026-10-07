@@ -11,7 +11,7 @@ export interface RunPackage {
   disclaimer: string;
   software: { name: string; version: string; commit: string };
   exportedAt: string;
-  schemaVersion: 2;
+  schemaVersion: 3;
   assumptionsHash: string;
   hashNote: string;
   winsTradingPnlIncluded: false;
@@ -41,6 +41,9 @@ export interface RunPackage {
     facility: Omit<NonNullable<ModelOutput["facility"]>, "contributionSamples"> & {
       contributionSampleCount: number;
     } | null;
+    metrics: ModelOutput["metrics"];
+    views: ModelOutput["views"];
+    mixes: ModelOutput["mixes"];
   };
   csv: { projections: string; reserve: string; facility: string; notes: string };
   researchNotes: ResearchNote[];
@@ -60,7 +63,11 @@ export function methodologyFootnote(assumptions: Assumptions, output: ModelOutpu
     `Stream ${output.streams.portfolio.id} portfolio. Step: ${output.streams.portfolio.step}. Dimension: ${output.streams.portfolio.dimension}.`,
     `Stream ${output.streams.reserve.id} reserve shortfall. Step: ${output.streams.reserve.step}. Dimension: ${output.streams.reserve.dimension}.`,
     `Stream ${output.streams.bootstrap.id} block bootstrap. Step: ${output.streams.bootstrap.step}. Dimension: ${output.streams.bootstrap.dimension}.`,
+    `Stream ${output.streams.rates.id} rates. Step: ${output.streams.rates.step}. Dimension: ${output.streams.rates.dimension}.`,
+    `Stream ${output.streams.credit.id} credit. Step: ${output.streams.credit.step}. Dimension: ${output.streams.credit.dimension}.`,
+    `Stream ${output.streams.idio.id} idiosyncratic. Step: ${output.streams.idio.step}. Dimension: ${output.streams.idio.dimension}.`,
     `Conditional 2031 to 2033: ${output.streams.conditional}`,
+    `Rate regime on the card: ${assumptions.rates.regime}. Short rate at 2027: ${assumptions.rates.r0}.`,
     output.monteCarlo ? `Monte Carlo formula: ${output.monteCarlo.formula}` : "Monte Carlo did not run.",
     `Correlation stress (added to off-diagonals): ${assumptions.correlationStress}. Repaired: ${output.correlation.repaired ? "yes" : "no"}. Ridged: ${output.correlation.ridged ? "yes" : "no"}.`,
     output.correlation.warning ? `Correlation warning: ${output.correlation.warning}` : "Correlation warning: none.",
@@ -104,7 +111,7 @@ export function buildRunPackage(
     disclaimer: DISCLAIMER,
     software: { name: APP_NAME, version: APP_VERSION, commit: GIT_COMMIT },
     exportedAt,
-    schemaVersion: 2,
+    schemaVersion: 3,
     assumptionsHash: hash,
     hashNote: "SHA-256 of the canonical JSON of assumptions. Key order is sorted. The hash does not cover results or the software commit.",
     winsTradingPnlIncluded: false,
@@ -132,6 +139,9 @@ export function buildRunPackage(
       monteCarlo: output.monteCarlo,
       reserve: output.reserve,
       facility,
+      metrics: output.metrics,
+      views: output.views,
+      mixes: output.mixes,
     },
     csv: {
       projections: projectionsCsv(output),

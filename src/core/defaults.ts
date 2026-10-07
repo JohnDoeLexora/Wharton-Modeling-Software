@@ -1,3 +1,5 @@
+import { satelliteCatalog } from "./basket";
+import { zeroEquityParams, zeroRateParams } from "./rates";
 import type { Assumptions, CandidateRule, Sleeve } from "./types";
 
 export const RESERVE_STEPS = 9;
@@ -6,8 +8,32 @@ function zeros(count: number): number[] {
   return Array(count).fill(0);
 }
 
+export function newSleeve(id: string, name: string, mu = 0, sigma = 0, base = 0, bull = 0, bear = 0): Sleeve {
+  return {
+    id,
+    name,
+    mu,
+    sigma,
+    base,
+    bull,
+    bear,
+    kind: "parametric",
+    duration: 0,
+    convexity: 0,
+    expenseRatio: 0,
+    spread: 0,
+    defaultProb: 0,
+    recovery: 0,
+    spreadBeta: 0,
+    tradable: true,
+    winsEligible: true,
+    studentDf: 5,
+    issuer: "",
+  };
+}
+
 function sleeve(id: string, name: string, mu: number, sigma: number, base: number, bull: number, bear: number): Sleeve {
-  return { id, name, mu, sigma, base, bull, bear };
+  return newSleeve(id, name, mu, sigma, base, bull, bear);
 }
 
 function rules(): CandidateRule[] {
@@ -42,8 +68,8 @@ function rules(): CandidateRule[] {
 /** Case cash flows plus zero market assumptions. Charts sit still until the team types its own inputs. */
 export function zeroAssumptions(): Assumptions {
   return {
-    schemaVersion: 2,
-    schema: 2,
+    schemaVersion: 3,
+    schema: 3,
     tag: "zero-default",
     certaintyNote: "",
     sleeves: [
@@ -68,7 +94,7 @@ export function zeroAssumptions(): Assumptions {
     inflation: 0,
     trials: 1000,
     seed: 42,
-    percentiles: [0.05, 0.25, 0.5, 0.75, 0.95],
+    percentiles: [0.01, 0.05, 0.1, 0.5, 0.9, 0.95],
     reserve: {
       method: "ladder",
       discountYield: 0,
@@ -92,6 +118,11 @@ export function zeroAssumptions(): Assumptions {
       useReserveOverride: false,
       reserveOverride: 500_000,
     },
+    rates: zeroRateParams(),
+    equity: zeroEquityParams(),
+    basket: satelliteCatalog(),
+    costs: { transactionCostBps: 0 },
+    mixes: [],
   };
 }
 
