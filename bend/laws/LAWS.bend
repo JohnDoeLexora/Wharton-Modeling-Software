@@ -6,6 +6,7 @@ import ../project.bend as Proj
 import ../reserve.bend as Res
 import ../facility.bend as Fac
 import ../rng.bend as Rng
+import ../bond.bend as Bond
 import ../corr.bend as Corr
 
 # Invariants of the Gao Bend engine.
@@ -460,4 +461,76 @@ law correlation_is_symmetric:
   {Corr.off_01(c) == Corr.off_10(c) : U32}
 
 def correlation_is_symmetric(c):
+  {==}
+
+# A yield change of 0 drops the duration term and the convexity term.
+# The fixed-point return is then the carry, in ppm.
+law zero_dy_bond_return_equals_carry:
+  {Bond.mtm_ppm(50000, 16000, 300000, 0) == 50000 : U32}
+
+def zero_dy_bond_return_equals_carry():
+  {==}
+
+law zero_dy_duration_loss_is_zero:
+  {Bond.duration_loss_ppm(16000, 0) == 0 : U32}
+
+def zero_dy_duration_loss_is_zero():
+  {==}
+
+law zero_dy_convexity_gain_is_zero:
+  {Bond.convexity_gain_ppm(300000, 0) == 0 : U32}
+
+def zero_dy_convexity_gain_is_zero():
+  {==}
+
+# 15 years of modified duration times a 1% yield rise is 15% of price, 150000 ppm.
+law long_bond_loss_at_one_percent:
+  {Bond.duration_loss_ppm(15000, 10000) == 150000 : U32}
+
+def long_bond_loss_at_one_percent():
+  {==}
+
+# A 0.4-year bill times the same 1% rise is 0.4%, 4000 ppm.
+law tbill_loss_at_one_percent:
+  {Bond.duration_loss_ppm(400, 10000) == 4000 : U32}
+
+def tbill_loss_at_one_percent():
+  {==}
+
+law long_bond_loss_exceeds_tbill_loss:
+  {((Bond.duration_loss_ppm(15000, 10000) - Bond.duration_loss_ppm(400, 10000) : U32)) == 146000 : U32}
+
+def long_bond_loss_exceeds_tbill_loss():
+  {==}
+
+# Carry 20% minus a 15-point duration loss, convexity off, stays non-negative: 5%.
+law duration_subtracts_from_carry:
+  {Bond.mtm_ppm(200000, 15000, 0, 10000) == 50000 : U32}
+
+def duration_subtracts_from_carry():
+  {==}
+
+# Convexity milli 300000 is convexity 300. At a 1% move, 0.5 * 300 * 0.01^2 = 1.5% = 15000 ppm.
+law convexity_adds_at_one_percent:
+  {Bond.mtm_ppm(100000, 0, 300000, 10000) == 115000 : U32}
+
+def convexity_adds_at_one_percent():
+  {==}
+
+law rates_stream_is_4:
+  {Rng.stream_id(Rng.Rates{}) == 4 : U32}
+
+def rates_stream_is_4():
+  {==}
+
+law credit_stream_is_5:
+  {Rng.stream_id(Rng.Credit{}) == 5 : U32}
+
+def credit_stream_is_5():
+  {==}
+
+law idio_stream_is_6:
+  {Rng.stream_id(Rng.Idio{}) == 6 : U32}
+
+def idio_stream_is_6():
   {==}

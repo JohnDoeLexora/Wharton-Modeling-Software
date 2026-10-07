@@ -10,6 +10,7 @@ for f in \
   bend/reserve.bend \
   bend/facility.bend \
   bend/rng.bend \
+  bend/bond.bend \
   bend/corr.bend \
   bend/shock.bend \
   bend/project.bend \

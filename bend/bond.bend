@@ -1,0 +1,27 @@
+import Base
+import ./fix.bend as Fix
+
+# Annual bond total return in parts per million.
+# R = carry - duration * dy + 0.5 * convexity * dy^2.
+#
+# duration_milli: 1 year of modified duration is 1000. A 15-year bond is 15000.
+# convexity_milli: 1 unit of convexity is 1000. The 0.5 is in the divisor below.
+# dy_ppm and carry_ppm: 1 is 1000000 ppm, so 1% is 10000 ppm.
+#
+# A zero yield change makes both the duration term and the convexity term 0,
+# so the return is the carry. Dollars and yields here are caller inputs.
+# Nothing in this file is a portfolio.
+
+def duration_loss_ppm(+duration_milli: U32, +dy_ppm: U32) -> U32:
+  Fix.muldiv(duration_milli, dy_ppm, 1000)
+
+def convexity_gain_ppm(+convexity_milli: U32, +dy_ppm: U32) -> U32:
+  +step = Fix.muldiv(convexity_milli, dy_ppm, 1000)
+  Fix.muldiv(step, dy_ppm, 2000000)
+
+def mtm_ppm(
+  +carry_ppm: U32, +duration_milli: U32, +convexity_milli: U32, +dy_ppm: U32
+) -> U32:
+  +gain = convexity_gain_ppm(convexity_milli, dy_ppm)
+  +loss = duration_loss_ppm(duration_milli, dy_ppm)
+  Fix.sub_sat((carry_ppm + gain : U32), loss)

@@ -9,7 +9,10 @@ import ./fix.bend as Fix
 # Stream 1, portfolio: step is the calendar year of the return, dimension is the sleeve.
 # Stream 2, reserve: step is the interval after operating payment k (0..8), dimension 0.
 # Stream 3, bootstrap: step is the block index, dimension 0.
-# The 2031-2033 conditional band is not a fourth stream. It reuses stream 1
+# Stream 4, rates: step is the calendar year, dimension 0 is the short-rate shock.
+# Stream 5, credit: step is the calendar year, dimension is the sleeve index.
+# Stream 6, idiosyncratic: step is the calendar year, dimension is the name.
+# The 2031-2033 conditional band is not its own stream. It reuses stream 1
 # at calendar years 2031 and 2032.
 #
 # F32 uniforms use the top 24 bits of that word. The TypeScript uniform uses
@@ -20,6 +23,9 @@ type Stream is Data:
   Portfolio{}
   Reserve{}
   Bootstrap{}
+  Rates{}
+  Credit{}
+  Idio{}
 
 def stream_id(s: Stream) -> U32:
   match s:
@@ -29,6 +35,12 @@ def stream_id(s: Stream) -> U32:
       2
     case Bootstrap{}:
       3
+    case Rates{}:
+      4
+    case Credit{}:
+      5
+    case Idio{}:
+      6
 
 def conditional_stream() -> U32:
   stream_id(Portfolio{})

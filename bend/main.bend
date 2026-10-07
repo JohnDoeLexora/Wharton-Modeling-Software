@@ -6,6 +6,7 @@ import ./project.bend as Proj
 import ./reserve.bend as Res
 import ./facility.bend as Fac
 import ./rng.bend as Rng
+import ./bond.bend as Bond
 import ./corr.bend as Corr
 
 # Deterministic case table. Returns, fees, and the glide are inputs.
@@ -63,7 +64,11 @@ def main() -> IO(Unit):
     IO.print("stream_portfolio " ++ U32.show(Rng.stream_id(Rng.Portfolio{})))
     IO.print("stream_reserve " ++ U32.show(Rng.stream_id(Rng.Reserve{})))
     IO.print("stream_bootstrap " ++ U32.show(Rng.stream_id(Rng.Bootstrap{})))
+    IO.print("stream_rates " ++ U32.show(Rng.stream_id(Rng.Rates{})))
+    IO.print("stream_credit " ++ U32.show(Rng.stream_id(Rng.Credit{})))
+    IO.print("stream_idio " ++ U32.show(Rng.stream_id(Rng.Idio{})))
     IO.print("conditional_stream " ++ U32.show(Rng.conditional_stream()))
+    IO.print("bond_zero_dy " ++ U32.show(Bond.mtm_ppm(50000, 16000, 300000, 0)))
     IO.print("draw_seed 42")
     IO.print("draw_stream 1")
     IO.print("draw_trial 0")
