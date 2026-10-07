@@ -15,8 +15,10 @@ export function Inspector() {
       <h3>Assumption inspector</h3>
       <p className="muted">
         Effective inputs the next sample will use. The master seed is {output.masterSeed}. Portfolio shocks are stream 1,
-        reserve shortfall shocks are stream 2, and block starts are stream 3. The conditional band reuses stream 1 at
-        2031 and 2032.
+        reserve shortfall shocks are stream 2, and block starts are stream 3. Stream 4 is the short rate, stream 5 is
+        credit default, and stream 6 is single-name and sector shocks. The conditional band reuses stream 1 at 2031
+        and 2032. Regime templates and satellite parameters are assumptions, not forecasts. Case contributions below
+        are locked.
       </p>
       {report.warning ? <p className="callout warn">{report.warning}</p> : null}
 

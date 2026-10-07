@@ -5,6 +5,7 @@ import { DisclaimerLine, Issues, TagPill } from "./bits";
 import { LineChart } from "./Chart";
 import { pct, usd } from "./format";
 import { SensitivityCard } from "./SensitivityCard";
+import { MetricsStrip, MixResultsTable, MtmHtmPanel } from "./ViewsPanels";
 
 const SCENARIO_COLOR: Record<ScenarioName, string> = {
   bear: "#8d2b2b",
@@ -126,6 +127,9 @@ export function ProjectionsPanel() {
           </p>
         </>
       ) : null}
+      <MtmHtmPanel />
+      <MetricsStrip />
+      <MixResultsTable />
       <SensitivityCard />
       <DisclaimerLine />
     </div>

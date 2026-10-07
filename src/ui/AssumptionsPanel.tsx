@@ -1,10 +1,25 @@
+import { placeholderBond, creditFlag } from "../core/bonds";
+import { newSleeve } from "../core/defaults";
 import { normalizeWeights, weightsAtYear } from "../core/glide";
-import type { Assumptions, ShockModel, Sleeve } from "../core/types";
+import type { Assumptions, ShockModel, Sleeve, SleeveKind } from "../core/types";
 import { useStore } from "../state";
+import { BasketEditor } from "./BasketEditor";
 import { CaseTimeline, Issues, TagPill } from "./bits";
 import { LineChart } from "./Chart";
 import { NumberField, PercentField } from "./fields";
 import { Inspector } from "./Inspector";
+import { MixEditor } from "./MixEditor";
+import { RateCard } from "./RateCard";
+
+const KIND_LABEL: Record<SleeveKind, string> = {
+  parametric: "Parametric μ/σ (ignores the rate path)",
+  tbill: "T-bills (duration and carry)",
+  intermediate: "Intermediate Treasuries",
+  long_treasury: "Long Treasuries",
+  credit: "Credit (spread, default, recovery)",
+  equity_index: "Broad equity index (Student-t)",
+  basket: "Satellite basket (one-factor names)",
+};
 
 const SLEEVE_COLORS = ["#0e5f5a", "#8a4b08", "#1e3348", "#8d2b2b", "#3d5a3a", "#6b4c7a"];
 
@@ -66,6 +81,7 @@ export function AssumptionsPanel() {
                 <th>Bear</th>
                 <th>Base</th>
                 <th>Bull</th>
+                <th>Pricing</th>
                 <th></th>
               </tr>
             </thead>
@@ -95,6 +111,22 @@ export function AssumptionsPanel() {
                     <PercentField bare label="Bull return" value={sleeve.bull} onChange={(bull) => update((a) => patchSleeve(a, index, { bull }))} />
                   </td>
                   <td>
+                    <select
+                      aria-label={`Sleeve ${index + 1} pricing`}
+                      value={sleeve.kind}
+                      onChange={(event) => {
+                        const kind = event.target.value as SleeveKind;
+                        update((a) => patchSleeve(a, index, { kind, ...placeholderBond(kind) }));
+                      }}
+                    >
+                      {(Object.keys(KIND_LABEL) as SleeveKind[]).map((kind) => (
+                        <option key={kind} value={kind}>
+                          {KIND_LABEL[kind]}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                  <td>
                     <button
                       type="button"
                       className="text"
@@ -109,7 +141,12 @@ export function AssumptionsPanel() {
             </tbody>
           </table>
         </div>
+        <SleevePricing />
       </section>
+
+      <RateCard />
+      <BasketEditor />
+      <MixEditor />
 
       <section className="card">
         <div className="section-row">
@@ -294,7 +331,7 @@ export function AssumptionsPanel() {
             label="Random seed"
             value={assumptions.seed}
             step="1"
-            hint="Master seed. Stream 1 is the portfolio, stream 2 is the reserve, stream 3 is the bootstrap. Quote it with the run package."
+            hint="Master seed. Streams 1–3 are portfolio, reserve, and bootstrap. Stream 4 is the short rate, stream 5 is credit default, stream 6 is single-name shocks. Quote it with the run package."
             onChange={(seed) => update((a) => ({ ...a, seed: Math.round(seed) }))}
           />
           <NumberField
@@ -432,6 +469,121 @@ function PercentileEditor() {
   );
 }
 
+function SleevePricing() {
+  const { assumptions, update } = useStore();
+  return (
+    <div className="stack tight">
+      <p className="muted">
+        Changing the pricing rule copies round duration, spread, and default placeholders into that sleeve. Those
+        numbers are assumptions, not forecasts. A parametric sleeve keeps μ, σ, and the scenario columns and ignores
+        the rate path. Credit is not a Treasury bill.
+      </p>
+      {assumptions.sleeves.map((sleeve, index) => (
+        <details key={sleeve.id} open={sleeve.kind !== "parametric"}>
+          <summary>
+            {sleeve.name} · {KIND_LABEL[sleeve.kind]}
+          </summary>
+          {creditFlag(sleeve) ? <p className="callout warn">{creditFlag(sleeve)}</p> : null}
+          <div className="choice-grid">
+            <PercentField
+              label={`${sleeve.name} expense ratio`}
+              value={sleeve.expenseRatio}
+              hint="Applied as (1+r)·(1−fee)−1. Zero leaves the return unchanged."
+              onChange={(expenseRatio) => update((a) => patchSleeve(a, index, { expenseRatio }))}
+            />
+            {sleeve.kind === "tbill" || sleeve.kind === "intermediate" || sleeve.kind === "long_treasury" || sleeve.kind === "credit" ? (
+              <>
+                <NumberField
+                  label={`${sleeve.name} modified duration`}
+                  value={sleeve.duration}
+                  step="0.1"
+                  suffix="y"
+                  hint="Placeholder when you switch kind. Edit it."
+                  onChange={(duration) => update((a) => patchSleeve(a, index, { duration }))}
+                />
+                <NumberField
+                  label={`${sleeve.name} convexity`}
+                  value={sleeve.convexity}
+                  step="1"
+                  hint="Price term is ½ · convexity · dy²."
+                  onChange={(convexity) => update((a) => patchSleeve(a, index, { convexity }))}
+                />
+              </>
+            ) : null}
+            {sleeve.kind === "credit" ? (
+              <>
+                <PercentField
+                  label={`${sleeve.name} credit spread`}
+                  value={sleeve.spread}
+                  hint="Added to the intermediate yield. Assumption, not a quote."
+                  onChange={(spread) => update((a) => patchSleeve(a, index, { spread }))}
+                />
+                <PercentField
+                  label={`${sleeve.name} annual default probability`}
+                  value={sleeve.defaultProb}
+                  onChange={(defaultProb) => update((a) => patchSleeve(a, index, { defaultProb }))}
+                />
+                <PercentField
+                  label={`${sleeve.name} recovery`}
+                  value={sleeve.recovery}
+                  hint="Loss given default is 1 − recovery."
+                  onChange={(recovery) => update((a) => patchSleeve(a, index, { recovery }))}
+                />
+                <NumberField
+                  label={`${sleeve.name} spread beta`}
+                  value={sleeve.spreadBeta}
+                  step="0.1"
+                  hint="Spread widens by this times the equity loss, when the equity factor is negative."
+                  onChange={(spreadBeta) => update((a) => patchSleeve(a, index, { spreadBeta }))}
+                />
+                <label className="field">
+                  <span>Issuer label</span>
+                  <input
+                    aria-label={`${sleeve.name} issuer`}
+                    value={sleeve.issuer}
+                    placeholder="Label only. Not a CUSIP."
+                    onChange={(event) => update((a) => patchSleeve(a, index, { issuer: event.target.value }))}
+                  />
+                </label>
+                <label className="field">
+                  <span>Flags</span>
+                  <span className="entry">
+                    <input
+                      type="checkbox"
+                      checked={sleeve.tradable}
+                      aria-label={`${sleeve.name} publicly tradable`}
+                      onChange={(event) => update((a) => patchSleeve(a, index, { tradable: event.target.checked }))}
+                    />
+                    Publicly tradable
+                  </span>
+                  <span className="entry">
+                    <input
+                      type="checkbox"
+                      checked={sleeve.winsEligible}
+                      aria-label={`${sleeve.name} WInS eligible`}
+                      onChange={(event) => update((a) => patchSleeve(a, index, { winsEligible: event.target.checked }))}
+                    />
+                    WInS eligible
+                  </span>
+                </label>
+              </>
+            ) : null}
+            {sleeve.kind === "equity_index" ? (
+              <NumberField
+                label={`${sleeve.name} Student-t degrees of freedom`}
+                value={sleeve.studentDf}
+                step="1"
+                hint="Around 5 is a fat-tail illustration. The draw is scaled to unit variance. 3 to 30."
+                onChange={(studentDf) => update((a) => patchSleeve(a, index, { studentDf: Math.round(studentDf) }))}
+              />
+            ) : null}
+          </div>
+        </details>
+      ))}
+    </div>
+  );
+}
+
 function range(start: number, end: number): number[] {
   const years: number[] = [];
   for (let year = start; year <= end; year++) years.push(year);
@@ -448,15 +600,7 @@ function patchSleeve(assumptions: Assumptions, index: number, patch: Partial<Sle
 function addSleeve(assumptions: Assumptions): Assumptions {
   if (assumptions.sleeves.length >= 6) return assumptions;
   const id = `sleeve-${Math.random().toString(36).slice(2, 7)}`;
-  const sleeve: Sleeve = {
-    id,
-    name: "New sleeve (label only)",
-    mu: 0,
-    sigma: 0,
-    base: 0,
-    bull: 0,
-    bear: 0,
-  };
+  const sleeve: Sleeve = newSleeve(id, "New sleeve (label only)");
   const count = assumptions.sleeves.length + 1;
   const correlation = Array.from({ length: count }, (_, row) =>
     Array.from({ length: count }, (_, col) => {

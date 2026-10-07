@@ -103,6 +103,31 @@ p { margin: 0.4rem 0; }
 
 main { padding: 0 1.5rem 2.5rem; max-width: 1180px; min-width: 0; }
 .stack { display: flex; flex-direction: column; gap: 0.9rem; min-width: 0; }
+.stack.tight { gap: 0.45rem; }
+details { border-top: 1px solid var(--line); padding: 0.45rem 0; }
+details summary { cursor: pointer; font-weight: 650; }
+.scroll-box {
+  max-height: 28rem;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.scroll-box table { margin: 0; }
+.note-cell { min-width: 16rem; }
+.metric-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 160px), 1fr));
+  gap: 0.6rem;
+}
+.metric-strip article {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.55rem 0.7rem;
+  background: #fff;
+  min-width: 0;
+}
+.metric-strip h4 { margin: 0 0 0.2rem; font-size: 0.82rem; }
+.metric-value { margin: 0 0 0.25rem; font-variant-numeric: tabular-nums; font-weight: 700; color: var(--navy); }
 .panel-head { max-width: 48rem; }
 .lede { font-size: 1.05rem; }
 

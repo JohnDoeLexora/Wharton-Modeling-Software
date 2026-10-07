@@ -65,7 +65,7 @@ function Shell() {
       <p className="status-line" role="status">
         {pending
           ? "Updating the sample…"
-          : `Master seed ${output.masterSeed}. Stream 1 portfolio, stream 2 reserve, stream 3 bootstrap. Schema ${output.schemaVersion}.`}
+          : `Master seed ${output.masterSeed}. Streams 1–6: portfolio, reserve, bootstrap, rates, credit, single-name. Schema ${output.schemaVersion}.`}
       </p>
       <nav className="tabs" role="tablist" aria-label="Toolkit sections" onKeyDown={onTabsKeyDown}>
         {TABS.map(([id, label]) => (

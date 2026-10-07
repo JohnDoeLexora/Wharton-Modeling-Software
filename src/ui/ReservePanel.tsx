@@ -8,6 +8,7 @@ import { DisclaimerLine, Issues } from "./bits";
 import { LineChart } from "./Chart";
 import { PercentField } from "./fields";
 import { num, pct, usd } from "./format";
+import { RegimeFundingTable } from "./RegimeFundingTable";
 
 const METHODS: { id: ReserveMethod; title: string; formula: string }[] = [
   {
@@ -134,6 +135,7 @@ export function ReservePanel() {
       </section>
 
       <LiabilityCard yieldPerYear={reserve.discountYield} />
+      <RegimeFundingTable />
 
       <section className="card">
         <h3>Method to show on the schedule</h3>
