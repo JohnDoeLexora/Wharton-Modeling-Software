@@ -1,8 +1,30 @@
 # Build status
 
-The repository has two engines for the Laura Gao case. The TypeScript workspace is still the interactive toolkit (`npm run dev`). The Bend 2 package in `bend/` is an additional proved core. Neither one contains a recommended portfolio, reserve, facility contribution, or co-sponsor range.
+Schema 3 of the TypeScript workspace is the interactive toolkit (`npm run dev`). The Bend 2 package in `bend/` proves the locked case arithmetic and the identity that a bond return equals its carry when the yield does not change. Neither engine contains a recommended portfolio, reserve, facility contribution, or co-sponsor range.
 
-Checked on 2026-10-06.
+Checked on 2026-10-07.
+
+## What changed in V3
+
+- A short-rate path with five regime templates (rising, flat, falling, shock-up, stagflation) and a three-point curve. One path per trial, on stream 4. Choosing a regime copies the illustration into the drift fields and leaves the short-rate level and the mean-reversion speed alone.
+- Sleeves can be priced as parametric μ/σ, T-bills, intermediate Treasuries, long Treasuries, credit, a Student-t equity index, or a one-factor satellite basket. Parametric sleeves ignore the rate path, so a version-2 book keeps its results. Mark-to-market wealth includes the duration price term. Hold-to-maturity wealth keeps the carry and any default loss.
+- The satellite editor lists the tickers from `case-materials/satellite_candidates.pdf`. Betas, volatilities, jumps, FX, and fees start as placeholder assumptions at weight 0.
+- The reserve tab still has the four flat-yield methods. A second table shows present value on the curve, a nominal $500,000, a T-bill ladder, and a duration-matched book under each regime template with volatility forced to zero.
+- Sample metrics include p1, P(fully funded), CVaR 5%, max drawdown, facility percentiles, the 2031 conditional band, sleeve price terms, Sharpe, Sortino, and standard errors. Compared mixes share the master seed.
+- `npm run sweep` writes a mix × regime grid to `out/sweep`. The stress returns in that file are labeled assumptions.
+- Assumptions are schema 3. The browser key is `gao-toolkit-v3`. A stored v1 or v2 workspace migrates: missing pricing becomes parametric, a missing rate card is a flat zero curve, and a missing basket is the candidate list at weight 0.
+- Streams 4, 5, and 6 are the short rate, credit default, and single-name shocks. Streams 1–3 are unchanged.
+
+## Verification on 2026-10-07
+
+- `npm test` passed 60 tests in `engine.test.ts`, `streams.test.ts`, `v3.test.ts`, and `guide.test.ts`.
+- `npm run build` typechecked and wrote `dist/`.
+- `bend bend/laws/LAWS.bend --verdict` printed `ALL PROOFS CHECK` on Bend 2.0.36. `bend bend/main.bend` printed `boy_2033_annual 450000`, `stream_rates 4`, `stream_credit 5`, `stream_idio 6`, and `bond_zero_dy 50000`.
+- Headless Chrome on the preview build, at 1280×900 and 390×844: the rate-regime picker, satellite basket, mix table, mark-to-market panel, sample metrics, and regime-funding table rendered. Document `scrollWidth` matched `clientWidth` at both widths. Choosing Rising copied a 0.75 pace and left the short rate at 0; the base path then showed a 2.25% short rate at the beginning of 2033. Typing `TSM` left one basket row. Switching the first sleeve to long Treasuries filled duration 16. Adding the current glide produced a “Comparison mix” row on the projection tab. A cleared browser showed beginning-of-2033 wealth of $450,000. Facility, ledger, research, export, and the modeling guide still opened. The guide contains “Four reserve methods” and does not contain “we recommend”.
+
+The version-2 notes below are the previous toolkit. The app that runs now is version 3.
+
+## Bend engine
 
 ## Bend engine
 
@@ -14,7 +36,8 @@ Bend 2.0.35 (`bend version`). Sources live in `bend/`. Laws live in `bend/laws/L
 - `bend/project.bend` walks 2027 through 2042. Annual rebalance gives the funding sleeve the remainder so dollars are conserved. Drift splits only the new contribution. The zero-return, zero-fee path is a caller input (`zero_returns`), and both modes report beginning-of-2033 wealth 450,000.
 - `bend/reserve.bend` is backward induction. At a 0 yield the ladder is 500,000, and rolling that reserve forward ends at 0. A surplus margin is a caller-supplied ppm.
 - `bend/facility.bend` takes a gift only from wealth above the reserve. On 450,000 against 500,000 the residual and the contribution are 0.
-- `bend/rng.bend` is SplitMix64 on `(seed, stream, trial, step, dimension)`. Stream ids are 1, 2, and 3. The 2031–2032 conditional band reuses stream 1. The raw 64-bit word matches `src/core/rng.ts`. F32 uniforms use the top 24 bits of that word.
+- `bend/rng.bend` is SplitMix64 on `(seed, stream, trial, step, dimension)`. Stream ids are 1 through 6: portfolio, reserve, bootstrap, rates, credit, and single-name. The 2031–2032 conditional band reuses stream 1. The raw 64-bit word matches `src/core/rng.ts`. F32 uniforms use the top 24 bits of that word.
+- `bend/bond.bend` prices a bond in parts per million. With a zero yield change, `mtm_ppm` equals the carry. A 15-year duration loses more, in ppm, than a 0.4-year bill. Negative results saturate at 0, so the loss comparison is the positive `duration_loss_ppm`.
 - `bend/corr.bend` stores one off-diagonal in ppm, clips it at 999,000, and applies a caller-supplied stress. The diagonal is 1,000,000 by construction, so the matrix stays symmetric.
 - `bend/shock.bend` maps caller-supplied mu and sigma through a normal or lognormal F32 formula. The scenario table does not read it.
 

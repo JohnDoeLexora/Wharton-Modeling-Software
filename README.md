@@ -24,7 +24,7 @@ Open the URL Vite prints (usually `http://127.0.0.1:5173`).
 
 The interactive workspace above is unchanged. `bend/` is a second engine, written in [Bend 2](https://bend2.dev) (the `bend` compiler, 2.0.x). It locks the same case arithmetic and checks it with `law` proofs. It does not replace `npm run dev`, and it does not load FinBERT.
 
-Install Bend if `bend version` is missing (`curl -fsSL https://bend-lang.com/install.sh | sh`). This repo was checked with Bend 2.0.35.
+Install Bend if `bend version` is missing (`curl -fsSL https://bend-lang.com/install.sh | sh`). This repo was checked with Bend 2.0.36.
 
 ```bash
 bend bend/main.bend          # or: npm run bend:demo
@@ -44,8 +44,11 @@ The in-app **How to model** tab is the same text as [docs/HOW_TO_MODELING.md](do
 ## What you can do in the app
 
 - Edit sleeve returns, volatility, a glide path, correlation (with an optional off-diagonal stress), inflation (purchasing-power view only), and the Monte Carlo sample size and seed.
-- Project beginning-of-year wealth from 2027 through 2042 on bear, base, and bull paths, plus percentiles of a seeded sample. One master seed feeds three named streams: portfolio shocks, the reserve shortfall sample, and block-bootstrap block starts. The 2031–2033 conditional band reuses the portfolio stream.
-- Compare four operating-reserve methods against the ten $50,000 payments, which stay visible as a schedule. Each method rolls remaining liability against reserve assets for 2033–2042.
+- Choose a sleeve’s pricing: parametric μ/σ, T-bills, intermediate Treasuries, long Treasuries, credit, a fat-tailed equity index, or a satellite basket. Bond and credit placeholders that appear when you switch pricing are labeled assumptions.
+- Pick a rate regime. The button copies an illustration into the drift fields and leaves the short-rate level and the mean-reversion speed as you typed them.
+- Project beginning-of-year wealth from 2027 through 2042 on bear, base, and bull paths, plus percentiles of a seeded sample, including p1. One master seed feeds six named streams: portfolio, reserve, bootstrap, short rate, credit default, and single-name shocks. The 2031–2033 conditional band reuses the portfolio stream. Compared mixes reuse the same seed.
+- Read mark-to-market wealth next to hold-to-maturity wealth, so a rate rise shows up as a price term on a long bond and a small price term on a bill.
+- Compare four operating-reserve methods against the ten $50,000 payments, which stay visible as a schedule. A second table shows present-value, nominal $500,000, T-bill, and duration-matched sizes under each rate-regime template.
 - Apply facility rules only to wealth left after the reserve, and build a 2031 communication range by scenario envelope, full-horizon percentiles, or a two-year conditional sample.
 - Inspect effective weights, the correlation matrix actually used, and the case contribution schedule. Compute local one-at-a-time sensitivities when you ask. Save named runs and compare two of them.
 - Export a run package (assumptions, results, CSV, methodology footnote) for an appendix.
@@ -77,7 +80,7 @@ If the service is stopped, the app says so. Projections keep working.
 
 The **Export** tab downloads a run package. **Run package JSON** is one file:
 
-- the assumptions, including `schemaVersion` 2
+- the assumptions, including `schemaVersion` 3
 - the results (scenario paths, Monte Carlo wealth samples, reserve, facility summary)
 - the projection, reserve, and facility CSV text
 - the liability schedule (ten nominal $50,000 payments, 2033–2042)
@@ -88,7 +91,7 @@ The **Export** tab downloads a run package. **Run package JSON** is one file:
 
 The SHA-256 assumptions hash identifies the inputs. The git commit identifies the formulas. A matching hash under a different commit is not the same experiment. WInS profit and loss is not in the file. FinBERT scores are not in the projection. Research notes are stored only as notes.
 
-The **Run ledger** tab saves a named snapshot in this browser (`localStorage` key `gao-toolkit-v2`). Each row keeps a copy of the assumptions, the hash, and a short output summary. Editing the workspace afterward does not edit the row. Compare two rows to see which fields differ. Load replaces the workspace inputs and leaves the research notes in place.
+The **Run ledger** tab saves a named snapshot in this browser (`localStorage` key `gao-toolkit-v3`). A stored `gao-toolkit-v2` or `gao-toolkit-v1` workspace is migrated on open: missing sleeve pricing becomes parametric, a missing rate card becomes a flat zero curve, and a missing basket becomes the candidate list at weight 0. Each row keeps a copy of the assumptions, the hash, and a short output summary. Editing the workspace afterward does not edit the row. Compare two rows to see which fields differ. Load replaces the workspace inputs and leaves the research notes in place.
 
 To rerun someone else’s package: check out the commit named in the file, open the app, and load the assumptions (paste them back by loading a ledger row you saved from those inputs, or set the same fields). The same seed, trial count, and commit reproduce the sample. The hash is of the assumptions only, so compare it after you reload.
 
@@ -112,7 +115,15 @@ npm test
 bend bend/laws/LAWS.bend
 ```
 
-`npm test` locks the TypeScript engine. `bend bend/laws/LAWS.bend` locks the Bend engine. The tests lock the case contributions, the annuity-due present value, the ladder roll-forward (funded ratio near 1, nothing left after the 2042 payment), scenario compounding, drift versus annual rebalance, seeded Monte Carlo, and the rule that a facility contribution cannot be taken from the operating reserve. They also lock the shared random streams (the conditional band reuses portfolio shocks; the reserve shortfall is a different stream at the same trial index), correlation repair, the assumptions hash, the run package footnote, and the split between μ and the scenario base return.
+`npm test` locks the TypeScript engine. `bend bend/laws/LAWS.bend` locks the Bend engine. The tests lock the case contributions, the annuity-due present value, the ladder roll-forward (funded ratio near 1, nothing left after the 2042 payment), scenario compounding, drift versus annual rebalance, seeded Monte Carlo, and the rule that a facility contribution cannot be taken from the operating reserve. They also lock the shared random streams (the conditional band reuses portfolio shocks; the reserve shortfall is a different stream at the same trial index), correlation repair, the assumptions hash, the run package footnote, and the split between μ and the scenario base return. Schema 3 tests lock the duration identity (no yield change means the bond return is the carry; a long bond loses about duration times the yield change; a bill loses much less), common random numbers across compared mixes, migration from a version-2 object, and the curve-reserve table.
+
+A mix × regime grid lives in `scripts/sweep.ts`:
+
+```bash
+npm run sweep -- --trials 200 --seed 42 --out out/sweep
+```
+
+The file labels its stress returns as assumptions. `out/` is gitignored.
 
 ## Starting numbers
 

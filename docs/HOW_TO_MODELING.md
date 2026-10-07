@@ -12,7 +12,9 @@ It will:
 
 - Lock the case cash flows and dates so they are not retyped by accident.
 - Project an undivided portfolio under bull, base, and bear returns you type, and under a seeded Monte Carlo sample.
-- Size the operating reserve with several standard methods and roll it forward from 2033 through 2042.
+- Price bill, treasury, and credit sleeves from a short-rate path, and show mark-to-market wealth next to a hold-to-maturity wealth path.
+- Run a one-factor satellite basket. The candidate tickers are listed. Their betas, volatilities, jumps, and FX numbers start as labeled placeholders.
+- Size the operating reserve with several standard methods and roll it forward from 2033 through 2042. A second table shows four curve-based sizes under each rate-regime template.
 - Apply rules you define to turn post-reserve wealth into a facility contribution and a flexibility balance.
 - Build a communication range with an explicit method, and write a draft sentence that names that method.
 - Score optional headlines with FinBERT, or with a clearly labeled demo word list, and store the scores as research notes.
@@ -104,7 +106,7 @@ An extreme drift check, useful only as arithmetic: two sleeves, weights 50/50, r
 
 Draws are independent across years. The same master seed repeats the same sample. Quote the seed, the stream ids, and the software commit when you export.
 
-### One master seed, three streams
+### One master seed, six streams
 
 The engine does not walk a single random-number cursor. A draw is a pure function of five coordinates:
 
@@ -116,17 +118,45 @@ Call order does not matter. Trial 0 does not change if you raise the trial count
 
 | Stream | Id | Step | Dimension | What it is |
 | --- | --- | --- | --- | --- |
-| Portfolio | 1 | Calendar year of the return, 2027–2041 | Sleeve index | Sleeve shocks for the full-horizon sample |
+| Portfolio | 1 | Calendar year of the return, 2027–2041 | Sleeve index, and 120+ for the equity Student-t | Sleeve shocks for the full-horizon sample, and the market-factor kernel |
 | Reserve | 2 | Interval 0..8, after payment k and before payment k+1 | 0 | The reserve asset in the shortfall sample |
 | Bootstrap | 3 | Block index | 0 | Starting row, only when you select block bootstrap |
+| Rates | 4 | Calendar year | 0 | Short-rate shock for that trial. One path per trial. |
+| Credit | 5 | Calendar year | Sleeve index | Default draw for a credit sleeve |
+| Single name | 6 | Calendar year | Name, jump, FX, and sector indexes | Idiosyncratic, jump, currency, and sector shocks |
 
-The conditional 2031→2033 band does **not** have a fourth seed. It reuses stream 1 at calendar years 2031 and 2032 and the same trial index. That is common random numbers with the full-horizon sample. Wealth is restarted at the anchor and at the 2031 policy weights. Balances that had drifted before 2031 are not carried into that restart. With annual rebalancing, trial t started from trial t’s own 2031 wealth lands on trial t’s 2033 wealth. With drift, the sleeve shocks still match and the balances do not, because the restart puts the anchor back on the policy mix.
+The conditional 2031→2033 band does **not** open a new seed. It reuses stream 1 at calendar years 2031 and 2032 and the same trial index. That is common random numbers with the full-horizon sample. Wealth is restarted at the anchor and at the 2031 policy weights. Balances that had drifted before 2031 are not carried into that restart. With annual rebalancing, trial t started from trial t’s own 2031 wealth lands on trial t’s 2033 wealth. With drift, the sleeve shocks still match and the balances do not, because the restart puts the anchor back on the policy mix. Compared mixes on the assumptions tab use the same seed and the same streams. Adding a mix does not redraw the main sample.
 
 Stream 2 is a different asset on purpose. Trial t of the reserve can be discussed next to trial t of the portfolio, and the shocks are not the portfolio’s shocks. Do not describe them as one shared history of market returns. Do describe them as one master seed with named streams.
 
 Block bootstrap replaces stream-1 parametric shocks with rows you type. A uniform on stream 3 picks the start of each block. μ, σ, and the Gaussian copula are not used on those paths. Bear, base, and bull still use the scenario returns you typed.
 
-Changing trials, the seed, μ, σ, correlation, the stress, the return model, the shock model, or the glide path changes the sample. Read the new run as a new experiment.
+Changing trials, the seed, μ, σ, correlation, the stress, the return model, the shock model, the glide path, a priced sleeve, or the rate card changes the sample. Read the new run as a new experiment.
+
+## Rates, duration, and single names
+
+The rate card is an annual short-rate step: last year’s short rate, plus mean reversion `κ(θ − r)`, plus a regime drift, plus `σ` times a stream-4 normal. The rate is floored at −5%. The shock during a year shows up in the next beginning-of-year level. From that short rate the card builds three yields: bills at the short rate, an intermediate yield equal to the short rate plus a premium you type, and a long yield equal to the short rate plus a long premium and a slope.
+
+Five regime buttons copy an illustration into the drift, the 2027 level shock, the equity-rate correlation, and the equity drag. They do not replace the starting short rate or `κ`. The illustrations are: rising +75 bp per year for three years, flat with no drift, falling −50 bp per year for three years (the pace field stays positive and the falling regime subtracts it), shock-up +200 bp during 2027, and stagflation +100 bp per year for two years with a negative equity drag. Edit the fields after you click. None of those numbers is a forecast.
+
+A sleeve whose pricing is **parametric** ignores the path and uses μ, σ, and the scenario columns, which is how a version-2 workspace keeps its results. A **T-bill**, **intermediate Treasury**, **long Treasury**, or **credit** sleeve is priced as
+
+```
+mark to market = carry − duration·dy + ½·convexity·dy² − default loss
+hold to maturity = carry − default loss
+```
+
+`carry` is the yield at the start of the year. For a credit sleeve that yield includes the spread you typed. `dy` is the change in that sleeve’s yield over the year. Hold to maturity answers “what if we do not mark the price when yields move?” Mark to market answers “are the bills underwater if rates rise?” A duration of 0.4 makes that price loss small. A duration of 15 makes it about 15 times the yield change, before convexity. Switching a sleeve’s pricing copies round duration, spread, and default placeholders. Those placeholders are assumptions. Replace them. Credit is labeled as not a Treasury bill. A row you mark not tradable, or not eligible for WInS, keeps that flag. The flag does not delete the row.
+
+The bear scenario adds 100 bp to the 2027 step. The bull scenario subtracts 100 bp. Monte Carlo uses the stream-4 shock instead. A credit default on a scenario path is probability times loss given default. On a Monte Carlo path it is a Bernoulli draw on stream 5.
+
+**Broad equity** uses a Student-t market factor, scaled so the factor has variance 1, then your σ. The degrees of freedom are an assumption. Around 5 is a fat-tail illustration, not a fitted value. **Satellite basket** is a one-factor model: alpha, beta times the market, a sector shock, an idiosyncratic shock, an optional jump, and, for a name marked Taiwan, an FX shock and a geopolitical jump. The ticker list is the candidate list in `case-materials/satellite_candidates.pdf`. Weights start at 0. Effective N is `1 / HHI` of the positive weights. The basket does nothing until a sleeve’s pricing is “Satellite basket” and that sleeve has a positive glide weight.
+
+An expense ratio, when it is not zero, turns a return `r` into `(1+r)·(1−fee)−1`. A turnover cost in basis points, when it is not zero, scales balances on an annual rebalance after the first year. Zeros leave the cash-flow identities alone.
+
+Block bootstrap still replaces the priced path on Monte Carlo trials. Scenario paths keep the pricing rule.
+
+`npm run sweep` writes a mix-by-regime grid to `out/sweep` as CSV and JSON. The stress μ and σ in that script are labeled in the file. They are not a portfolio.
 
 ### How to read a percentile without overclaiming
 
@@ -183,6 +213,8 @@ All four are computed from the inputs on the reserve tab. The radio button choos
 4. **In-sample shortfall target.** Draw reserve returns from the shortfall μ and σ, using the same return model as the portfolio (lognormal or floored normal). For each path, compute the immunizing reserve. Sort those requirements. The reported reserve is the smallest dollar amount that covers at least your target fraction of the sample. With `n` draws and target `q`, that is the order statistic at index `ceil(q n) − 1`. The achieved share is a count of these draws. A target of 100% is the worst path **in the sample**, not a proof. A target of 0 sizes the reserve at $0 and funds nothing. If some paths lose 100% before later payments, those paths have no finite immunizing reserve, and a high target may be unattainable. The app says so instead of inventing a number.
 
 The schedule can be rolled on a custom path of nine returns (during 2033, after that year’s payment, through during 2041). **Sizing does not follow that custom path** unless the custom rates happen to equal the method’s rate. The gap you then see is the point: a de-risking story that is not the story you sized to will overshoot or undershoot. Writing a declining path is allowed. The app will not invent the decline for you.
+
+Below those four methods, the reserve tab also shows a **regime table**. Each column takes the level, mean reversion, and term premia from the rate card, lays one regime template on top, and sets short-rate volatility to zero. Four sizes are reported for that curve: the present value of the ten payments on the 2033 three-point curve, a nominal $500,000, a T-bill ladder at the 2033 short rate, and a duration-matched book of the same present value. On a zero curve all four are $500,000. A rising template lowers the discounted sizes and leaves the nominal $500,000 where it is. An instantaneous +100 bp column shows how the funded ratio moves. The portfolio sample still uses the volatility you left on the card. The table is not a ranking.
 
 You can also redraw the schedule as if you set aside only `min(scenario wealth, sized reserve)`. The liability math of the full reserve stays in the comparison table and in the CSV. If bear wealth cannot pay for the reserve, the capped schedule is where the missed payments show up year by year.
 
@@ -251,10 +283,10 @@ Inflation changes only the real-wealth column. It does not index the $50,000 pay
 
 Also left out, on purpose:
 
-- Taxes, fees beyond what you fold into a net return, and currency.
+- Taxes, and the legal setup of a residency in Taiwan.
 - Contributions or withdrawals other than the two case contributions and the 2033 decisions.
 - Monthly or daily paths. The step is one year.
-- Mean reversion, fat tails beyond what a normal or lognormal already has, and any risk you did not type in as μ, σ, or a scenario return.
+- Any risk you did not type. Mean reversion is only the `κ` on the rate card. Fat tails are only the Student-t degrees of freedom you set. Currency is only the FX volatility on a basket name. A parametric sleeve still has only the μ, σ, and scenario return you typed.
 - A separate endowment or contingency fund. The case says you are not expected to size one. Flexibility in this toolkit is simply the residual the rule does not give away.
 - WInS profit and loss. The competition guide says long-term projections start from the case cash flows and the team’s return assumptions.
 
@@ -419,7 +451,13 @@ A lognormal draw whose exponent would overflow is capped at exp(709)−1, which 
 | --- | --- |
 | `src/core/case.ts` | Locked dates, contributions, payment amount, disclaimer. |
 | `src/core/liability.ts` | The ten-payment liability object. |
-| `src/core/rng.ts` | Counter-based streams 1, 2, and 3. |
+| `src/core/rng.ts` | Counter-based streams 1 through 6. |
+| `src/core/rates.ts` | Short-rate step, three-point curve, regime templates. |
+| `src/core/bonds.ts` | Duration and convexity return, mark to market and hold to maturity. |
+| `src/core/equity.ts` | Unit-variance Student-t and the one-factor basket. |
+| `src/core/basket.ts` | Candidate tickers. Parameters are placeholders. |
+| `src/core/regimeReserve.ts` | Curve present value and funded status by regime template. |
+| `src/core/sweep.ts` | Mix × regime grid used by `scripts/sweep.ts`. |
 | `src/core/project.ts` | Beginning-of-year projection, rebalance or drift, sleeve shocks. |
 | `src/core/reserve.ts` | Immunization, roll-forward, shortfall order statistic, pathwise funded ratio, duration. |
 | `src/core/correlation.ts` | Stress, PSD check, eigenvalue repair. |
@@ -428,11 +466,11 @@ A lognormal draw whose exponent would overflow is capped at exp(709)−1, which 
 | `src/core/facility.ts` | Rules, scenario envelope, percentile bands, draft wording. |
 | `src/core/run.ts` | Validates inputs and runs one consistent pass. |
 | `src/core/package.ts` | Run package and the methodology footnote. |
-| `src/core/defaults.ts` | Zero starting point and the opt-in teaching example. Schema version 2. |
+| `src/core/defaults.ts` | Zero starting point and the opt-in teaching example. Schema version 3. |
 | `services/finbert/server.py` | Optional local FinBERT scoring. |
 
 `npm test` checks the cash flows, the annuity, the ladder invariant (funded ratio near 1 and a final balance near 0), scenario compounding, drift versus rebalance, seed repeatability, common random numbers between the full-horizon sample and the conditional band, the separation of μ from the scenario base return, the rule that facility dollars cannot touch the reserve, and the wording of a range. When you change a formula, change the guide in the same edit.
 
 ## Limits, stated plainly
 
-Annual independent returns will not reproduce a crash that lasts three months and then reverses, or a decade of below-average real equity returns, unless you put that story into a scenario return, into μ, or into a bootstrap history. A lognormal sample has no jumps. Correlation is constant unless you stress it, and a repair changes the matrix. Stream 2 is not stream 1. Present value is only as meaningful as the yield you discount at. A funded ratio of 1 means “matched at that yield,” not “safe.” A percentile band is a property of a sample. The draft co-sponsor sentence is a template. The judgment, and the responsibility for it, stays with the team.
+Annual independent returns will not reproduce a crash that lasts three months and then reverses, or a decade of below-average real equity returns, unless you put that story into a scenario return, into μ, into a rate regime, or into a bootstrap history. A parametric lognormal sleeve has no jumps. An equity-index sleeve uses a Student-t you set, and a basket sleeve can add a jump you typed. Those are still one step per year. Correlation is constant unless you stress it, and a repair changes the matrix. Stream 2 is not stream 1. Present value is only as meaningful as the yield you discount at. A funded ratio of 1 means “matched at that yield,” not “safe.” A percentile band is a property of a sample. The draft co-sponsor sentence is a template. The judgment, and the responsibility for it, stays with the team.
