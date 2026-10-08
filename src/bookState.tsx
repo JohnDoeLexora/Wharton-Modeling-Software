@@ -35,6 +35,8 @@ interface BookStore {
   audience: ExportAudience;
   pinned: PinnedMetrics | null;
   stresses: StressRow[];
+  /** WInS fills CSV. This book is not an input to the case projection. */
+  fillsText: string;
   setHoldings: (holdings: Holding[]) => void;
   setBaseline: (holdings: Holding[]) => void;
   setMarket: (market: MarketRow[]) => void;
@@ -42,11 +44,12 @@ interface BookStore {
   setAudience: (audience: ExportAudience) => void;
   setPinned: (pinned: PinnedMetrics | null) => void;
   setStresses: (rows: StressRow[]) => void;
+  setFillsText: (text: string) => void;
 }
 
 const Ctx = createContext<BookStore | null>(null);
 
-function load(): Pick<BookStore, "holdings" | "baseline" | "market" | "rules" | "audience"> {
+function load(): Pick<BookStore, "holdings" | "baseline" | "market" | "rules" | "audience" | "fillsText"> {
   try {
     const raw = localStorage.getItem(KEY);
     if (!raw) throw new Error("empty");
@@ -57,9 +60,10 @@ function load(): Pick<BookStore, "holdings" | "baseline" | "market" | "rules" | 
       market: Array.isArray(parsed.market) ? parsed.market : [],
       rules: { ...defaultRules(), ...(parsed.rules ?? {}) },
       audience: parsed.audience === "INTERNAL" ? "INTERNAL" : "EXTERNAL",
+      fillsText: typeof parsed.fillsText === "string" ? parsed.fillsText : "",
     };
   } catch {
-    return { holdings: [], baseline: [], market: [], rules: defaultRules(), audience: "EXTERNAL" };
+    return { holdings: [], baseline: [], market: [], rules: defaultRules(), audience: "EXTERNAL", fillsText: "" };
   }
 }
 
@@ -72,15 +76,16 @@ export function BookProvider({ children }: { children: ReactNode }) {
   const [audience, setAudienceState] = useState<ExportAudience>(initial.audience);
   const [pinned, setPinned] = useState<PinnedMetrics | null>(null);
   const [stresses, setStresses] = useState<StressRow[]>([]);
+  const [fillsText, setFillsText] = useState(initial.fillsText);
 
   useEffect(() => {
     setExportAudience(audience);
     try {
-      localStorage.setItem(KEY, JSON.stringify({ holdings, baseline, market, rules, audience }));
+      localStorage.setItem(KEY, JSON.stringify({ holdings, baseline, market, rules, audience, fillsText }));
     } catch {
       /* The session still runs if storage is full. */
     }
-  }, [holdings, baseline, market, rules, audience]);
+  }, [holdings, baseline, market, rules, audience, fillsText]);
 
   const store = useMemo<BookStore>(
     () => ({
@@ -91,6 +96,7 @@ export function BookProvider({ children }: { children: ReactNode }) {
       audience,
       pinned,
       stresses,
+      fillsText,
       setHoldings,
       setBaseline,
       setMarket,
@@ -101,8 +107,9 @@ export function BookProvider({ children }: { children: ReactNode }) {
       },
       setPinned,
       setStresses,
+      setFillsText,
     }),
-    [holdings, baseline, market, rules, audience, pinned, stresses],
+    [holdings, baseline, market, rules, audience, pinned, stresses, fillsText],
   );
 
   return <Ctx.Provider value={store}>{children}</Ctx.Provider>;

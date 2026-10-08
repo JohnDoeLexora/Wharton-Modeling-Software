@@ -219,6 +219,8 @@ input:focus, select:focus, textarea:focus { border-color: var(--teal); outline: 
 .formula, code, .note { font-family: var(--mono); font-size: 0.84rem; }
 .formula { display: block; color: var(--navy); margin-top: 0.25rem; }
 textarea.note { width: 100%; line-height: 1.45; }
+.note-count { font-variant-numeric: tabular-nums; }
+.note-count.over { color: var(--bad); font-weight: 700; }
 
 .table-wrap {
   position: relative;

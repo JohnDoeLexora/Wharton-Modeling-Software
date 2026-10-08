@@ -1,6 +1,16 @@
 import { FIRST_PROJECTION_YEAR, LAST_PROJECTION_YEAR } from "./case";
+import {
+  DEFAULT_LAMBDA,
+  DEFAULT_LAMBDA2,
+  fitFactorsToThree,
+  quoteYield,
+  quotedZero,
+  type Factors,
+} from "./nelson";
 import { STREAM, standardNormal } from "./rng";
-import type { EquityParams, RateParams, RatePathPoint, RateRegime, ScenarioName } from "./types";
+import type { CurveModel, EquityParams, RateParams, RatePathPoint, RateRegime, ScenarioName } from "./types";
+
+export { FLOOR_POLICY, QUOTE_FLOOR } from "./nelson";
 
 export const RATE_REGIMES: RateRegime[] = ["rising", "flat", "falling", "shock-up", "stagflation"];
 
@@ -60,10 +70,24 @@ export const REGIME_TEMPLATE: Record<RateRegime, RegimeTemplate> = {
 export function zeroRateParams(): RateParams {
   return {
     regime: "flat",
+    curveModel: "nelson_siegel",
+    lambda: DEFAULT_LAMBDA,
+    lambda2: DEFAULT_LAMBDA2,
+    useFactorStart: false,
+    beta0: 0,
+    beta1: 0,
+    beta2: 0,
+    beta3: 0,
     r0: 0,
     kappa: 0,
     theta: 0,
     sigma: 0,
+    kappaSlope: 0,
+    kappaCurve: 0,
+    thetaSlope: 0,
+    thetaCurve: 0,
+    sigmaSlope: 0,
+    sigmaCurve: 0,
     intermediatePremium: 0,
     longPremium: 0,
     slope: 0,
@@ -114,10 +138,62 @@ export function driftDuring(params: RateParams, year: number, extra = 0): number
 
 export function curveFromShort(short: number, params: RateParams): { short: number; intermediate: number; long: number } {
   return {
-    short,
-    intermediate: short + params.intermediatePremium,
-    long: short + params.longPremium + params.slope,
+    short: quoteYield(short),
+    intermediate: quoteYield(short + params.intermediatePremium),
+    long: quoteYield(short + params.longPremium + params.slope),
   };
+}
+
+/** Starting factors. A zero premium and a flat r0 stay a flat Nelson-Siegel curve. */
+export function initialFactors(params: RateParams): Factors {
+  const lambda = Math.abs(params.lambda) < 1e-8 ? DEFAULT_LAMBDA : params.lambda;
+  const lambda2 = Math.abs(params.lambda2) < 1e-8 ? DEFAULT_LAMBDA2 : params.lambda2;
+  if (params.useFactorStart) {
+    return {
+      beta0: params.beta0,
+      beta1: params.beta1,
+      beta2: params.beta2,
+      beta3: params.curveModel === "svensson" ? params.beta3 : 0,
+      lambda,
+      lambda2,
+    };
+  }
+  const fitted = fitFactorsToThree(
+    params.r0,
+    params.r0 + params.intermediatePremium,
+    params.r0 + params.longPremium + params.slope,
+    lambda,
+  );
+  return {
+    ...fitted,
+    beta3: params.curveModel === "svensson" ? params.beta3 : 0,
+    lambda,
+    lambda2,
+  };
+}
+
+export function yieldOnPath(row: EvolvedRate, tenor: number): number {
+  if (row.curveModel === "three_point") {
+    if (tenor <= 1) return row.short;
+    if (tenor >= 10) return row.long;
+    if (tenor <= 5) {
+      const weight = (tenor - 1) / 4;
+      return row.short * (1 - weight) + row.intermediate * weight;
+    }
+    const weight = (tenor - 5) / 5;
+    return row.intermediate * (1 - weight) + row.long * weight;
+  }
+  return quotedZero(
+    {
+      beta0: row.beta0,
+      beta1: row.beta1,
+      beta2: row.beta2,
+      beta3: row.beta3,
+      lambda: row.lambda,
+      lambda2: row.lambda2,
+    },
+    tenor,
+  );
 }
 
 export interface EvolvedRate {
@@ -127,26 +203,99 @@ export interface EvolvedRate {
   long: number;
   drift: number;
   shock: number;
+  beta0: number;
+  beta1: number;
+  beta2: number;
+  beta3: number;
+  lambda: number;
+  lambda2: number;
+  curveModel: CurveModel;
+}
+
+function blankFactors(factors: Factors, curveModel: CurveModel): Pick<
+  EvolvedRate,
+  "beta0" | "beta1" | "beta2" | "beta3" | "lambda" | "lambda2" | "curveModel"
+> {
+  return {
+    beta0: factors.beta0,
+    beta1: factors.beta1,
+    beta2: factors.beta2,
+    beta3: factors.beta3,
+    lambda: factors.lambda,
+    lambda2: factors.lambda2,
+    curveModel,
+  };
 }
 
 /**
- * Short rate at each beginning-of-year date from 2027 through 2042.
+ * One curve per beginning-of-year date from 2027 through 2042.
  * The shock is applied during the year, so it shows up in the next date.
- * Vasicek / Hull–White style annual step: r + κ(θ − r) + drift + σ z, floored at −5%.
+ * Nelson-Siegel steps the level, slope, and curvature. The regime drift is added to the level.
+ * Quotes use the zero floor. The three-point model floors its short-rate state at the same zero.
  */
-export function evolveShortRate(params: RateParams, shockAt: (year: number) => number, scenarioShift = 0): EvolvedRate[] {
+export function evolveShortRate(
+  params: RateParams,
+  shockAt: (year: number, dimension?: number) => number,
+  scenarioShift = 0,
+): EvolvedRate[] {
+  if ((params.curveModel ?? "nelson_siegel") === "three_point") return evolveThreePoint(params, shockAt, scenarioShift);
+  return evolveFactors(params, shockAt, scenarioShift);
+}
+
+function evolveThreePoint(
+  params: RateParams,
+  shockAt: (year: number, dimension?: number) => number,
+  scenarioShift: number,
+): EvolvedRate[] {
   const rows: EvolvedRate[] = [];
-  let short = params.r0;
+  let short = quoteYield(params.r0);
+  const factors = initialFactors({ ...params, curveModel: "nelson_siegel", useFactorStart: false });
   for (let year = FIRST_PROJECTION_YEAR; year <= LAST_PROJECTION_YEAR; year++) {
     const drifting = year < LAST_PROJECTION_YEAR;
     const extra = drifting && year === FIRST_PROJECTION_YEAR ? scenarioShift : 0;
     const drift = drifting ? driftDuring(params, year, extra) : 0;
-    const shock = drifting ? shockAt(year) : 0;
+    const shock = drifting ? shockAt(year, 0) : 0;
     const curve = curveFromShort(short, params);
-    rows.push({ calendarYear: year, ...curve, drift, shock });
+    rows.push({ calendarYear: year, ...curve, drift, shock, ...blankFactors({ ...factors, beta0: short }, "three_point") });
     if (drifting) {
       const next = short + params.kappa * (params.theta - short) + drift + params.sigma * shock;
-      short = Math.max(-0.05, next);
+      short = quoteYield(next);
+    }
+  }
+  return rows;
+}
+
+function evolveFactors(
+  params: RateParams,
+  shockAt: (year: number, dimension?: number) => number,
+  scenarioShift: number,
+): EvolvedRate[] {
+  const rows: EvolvedRate[] = [];
+  let factors = initialFactors(params);
+  const curveModel = params.curveModel === "svensson" ? "svensson" : "nelson_siegel";
+  for (let year = FIRST_PROJECTION_YEAR; year <= LAST_PROJECTION_YEAR; year++) {
+    const drifting = year < LAST_PROJECTION_YEAR;
+    const extra = drifting && year === FIRST_PROJECTION_YEAR ? scenarioShift : 0;
+    const drift = drifting ? driftDuring(params, year, extra) : 0;
+    const shock = drifting ? shockAt(year, 0) : 0;
+    const slopeShock = drifting ? shockAt(year, 1) : 0;
+    const curveShock = drifting ? shockAt(year, 2) : 0;
+    rows.push({
+      calendarYear: year,
+      short: quotedZero(factors, 0),
+      intermediate: quotedZero(factors, 5),
+      long: quotedZero(factors, 10),
+      drift,
+      shock,
+      ...blankFactors(factors, curveModel),
+    });
+    if (drifting) {
+      factors = {
+        ...factors,
+        beta0: factors.beta0 + params.kappa * (params.theta - factors.beta0) + drift + params.sigma * shock,
+        beta1: factors.beta1 + params.kappaSlope * (params.thetaSlope - factors.beta1) + params.sigmaSlope * slopeShock,
+        beta2: factors.beta2 + params.kappaCurve * (params.thetaCurve - factors.beta2) + params.sigmaCurve * curveShock,
+      };
     }
   }
   return rows;
@@ -173,7 +322,7 @@ export function ratePath(args: {
   const shift = args.mode === "scenario" ? scenarioShift(args.scenario) : 0;
   return evolveShortRate(
     args.params,
-    (year) => (args.mode === "mc" ? rateShock(args.seed, args.trial, year) : 0),
+    (year, dimension = 0) => (args.mode === "mc" ? standardNormal(args.seed, STREAM.rates, args.trial, year, dimension) : 0),
     shift,
   );
 }
@@ -186,6 +335,10 @@ export function toRatePathPoints(rows: EvolvedRate[]): RatePathPoint[] {
     long: row.long,
     drift: row.drift,
     shock: row.shock,
+    beta0: row.beta0,
+    beta1: row.beta1,
+    beta2: row.beta2,
+    curveModel: row.curveModel,
   }));
 }
 
@@ -196,6 +349,8 @@ export function templateParams(base: RateParams, regime: RateRegime): RateParams
     ...base,
     regime,
     sigma: 0,
+    sigmaSlope: 0,
+    sigmaCurve: 0,
     driftPerYear: template.driftPerYear,
     driftYears: template.driftYears,
     levelShock: template.levelShock,

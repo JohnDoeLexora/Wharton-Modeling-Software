@@ -1,7 +1,8 @@
 import { OPERATING_PAYMENT, OPERATING_PAYMENTS } from "./case";
 import { modifiedDuration } from "./math";
 import { bondTotalReturn } from "./bonds";
-import { RATE_REGIMES, evolveShortRate, templateParams } from "./rates";
+import { QUOTE_FLOOR } from "./nelson";
+import { RATE_REGIMES, evolveShortRate, templateParams, yieldOnPath, type EvolvedRate } from "./rates";
 import { reserveToImmunize, flatReturns } from "./reserve";
 import type { CurveReserveMethod, RateParams, RegimeFunding, RegimeMethodStatus } from "./types";
 
@@ -23,23 +24,24 @@ export function yieldForMaturity(curve: YieldCurve, years: number): number {
   return curve.intermediate * (1 - weight) + curve.long * weight;
 }
 
-/** Present value of the remaining $50,000 annuity-due on a 3-point curve. */
-export function pvAtCurve(curve: YieldCurve, paymentsLeft = OPERATING_PAYMENTS): number {
+/** Present value of the remaining $50,000 annuity-due. `yieldAt(k)` is the annual zero k years out. */
+export function pvFromYield(yieldAt: (years: number) => number, paymentsLeft = OPERATING_PAYMENTS): number {
   let total = 0;
   for (let k = 0; k < paymentsLeft; k++) {
     if (k === 0) {
       total += OPERATING_PAYMENT;
       continue;
     }
-    const yieldK = yieldForMaturity(curve, k);
+    const yieldK = yieldAt(k);
     if (yieldK <= -0.999999) return Number.POSITIVE_INFINITY;
     total += OPERATING_PAYMENT / Math.pow(1 + yieldK, k);
   }
   return total;
 }
 
-function shiftCurve(curve: YieldCurve, dy: number): YieldCurve {
-  return { short: curve.short + dy, intermediate: curve.intermediate + dy, long: curve.long + dy };
+/** Present value on a 3-point curve. Nelson-Siegel paths use `pvFromYield` with `yieldOnPath`. */
+export function pvAtCurve(curve: YieldCurve, paymentsLeft = OPERATING_PAYMENTS): number {
+  return pvFromYield((years) => yieldForMaturity(curve, years), paymentsLeft);
 }
 
 interface RollResult {
@@ -63,7 +65,7 @@ function liabilityDuration(curve: YieldCurve, paymentsLeft: number): { modified:
  */
 function rollReserveOnCurves(args: {
   initial: number;
-  curves: YieldCurve[];
+  curves: EvolvedRate[];
   style: CurveReserveMethod;
 }): RollResult {
   let assets = args.initial;
@@ -74,7 +76,7 @@ function rollReserveOnCurves(args: {
     const curve = args.curves[k];
     const next = args.curves[k + 1] ?? curve;
     const paymentsLeft = years - k;
-    const pv = pvAtCurve(curve, paymentsLeft);
+    const pv = pvFromYield((tenor) => yieldOnPath(curve, tenor), paymentsLeft);
     if (Number.isFinite(pv) && pv > 0) {
       const ratio = assets / pv;
       minRatio = minRatio === null ? ratio : Math.min(minRatio, ratio);
@@ -108,10 +110,9 @@ function rollReserveOnCurves(args: {
   }
 
   const curve0 = args.curves[0];
-  const shocked = curve0 ? shiftCurve(curve0, 0.01) : null;
   let shockFundedRatio: number | null = null;
-  if (curve0 && shocked) {
-    const newPv = pvAtCurve(shocked, years);
+  if (curve0) {
+    const newPv = pvFromYield((tenor) => Math.max(QUOTE_FLOOR, yieldOnPath(curve0, tenor) + 0.01), years);
     let duration = 0;
     let convexity = 0;
     if (args.style === "tbill_ladder") {
@@ -138,7 +139,7 @@ function rollReserveOnCurves(args: {
 function methodNote(method: CurveReserveMethod): string {
   if (method === "nominal") return "Nominal $500,000 cash. It earns nothing. The ten payments sum to $500,000.";
   if (method === "tbill_ladder") return "T-bill ladder sized at the 2033 short rate, then rolled at the path's short yield. Duration 0.4.";
-  if (method === "pv_curve") return "Present value of the ten payments on the 2033 three-point curve, then duration-matched to what remains.";
+  if (method === "pv_curve") return "Present value of the ten payments on the 2033 curve, then duration-matched to what remains.";
   return "Same present value as the curve ladder. The asset duration is reset each year to the liability's modified duration.";
 }
 
@@ -146,15 +147,10 @@ const METHOD_ORDER: CurveReserveMethod[] = ["pv_curve", "nominal", "tbill_ladder
 
 export function fundingForParams(params: RateParams, regimeLabel: RateParams["regime"]): RegimeFunding {
   const path = evolveShortRate(params, () => 0, 0);
-  const from2033 = path.filter((row) => row.calendarYear >= 2033);
-  const curves: YieldCurve[] = from2033.map((row) => ({
-    short: row.short,
-    intermediate: row.intermediate,
-    long: row.long,
-  }));
-  const curve = curves[0] ?? { short: params.r0, intermediate: params.r0, long: params.r0 };
-  const pv = pvAtCurve(curve);
-  const bill = reserveToImmunize(flatReturns(curve.short));
+  const curves = path.filter((row) => row.calendarYear >= 2033);
+  const curve = curves[0];
+  const pv = curve ? pvFromYield((tenor) => yieldOnPath(curve, tenor)) : Number.NaN;
+  const bill = reserveToImmunize(flatReturns(curve?.short ?? params.r0));
   const sized: Record<CurveReserveMethod, number> = {
     pv_curve: Number.isFinite(pv) ? pv : Number.NaN,
     nominal: OPERATING_PAYMENT * OPERATING_PAYMENTS,
@@ -175,7 +171,7 @@ export function fundingForParams(params: RateParams, regimeLabel: RateParams["re
       note: methodNote(method),
     };
   });
-  return { regime: regimeLabel, short2033: curve.short, methods };
+  return { regime: regimeLabel, short2033: curve?.short ?? params.r0, methods };
 }
 
 export const REGIME_TABLE_NOTE =

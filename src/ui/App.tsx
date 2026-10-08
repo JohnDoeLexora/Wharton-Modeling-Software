@@ -2,6 +2,9 @@ import { useState, type KeyboardEvent } from "react";
 import { BookProvider, useBook } from "../bookState";
 import { StoreProvider, useStore } from "../state";
 import { AssumptionsPanel } from "./AssumptionsPanel";
+import { CurvePanel } from "./CurvePanel";
+import { InstrumentPanel } from "./InstrumentPanel";
+import { TrackingPanel } from "./TrackingPanel";
 import { ComparePanel } from "./ComparePanel";
 import { DashboardPanel } from "./DashboardPanel";
 import { ExportPanel } from "./ExportPanel";
@@ -24,6 +27,9 @@ const TABS = [
   ["assumptions", "Assumptions"],
   ["projections", "Projections"],
   ["reserve", "Operating reserve"],
+  ["curve", "Curve"],
+  ["instruments", "Instruments"],
+  ["tracking", "Tracking"],
   ["facility", "Facility & range"],
   ["ledger", "Run ledger"],
   ["research", "Research"],
@@ -109,6 +115,9 @@ function Shell() {
         {tab === "assumptions" ? <AssumptionsPanel /> : null}
         {tab === "projections" ? <ProjectionsPanel /> : null}
         {tab === "reserve" ? <ReservePanel /> : null}
+        {tab === "curve" ? <CurvePanel /> : null}
+        {tab === "instruments" ? <InstrumentPanel /> : null}
+        {tab === "tracking" ? <TrackingPanel /> : null}
         {tab === "facility" ? <FacilityPanel /> : null}
         {tab === "ledger" ? <LedgerPanel /> : null}
         {tab === "research" ? <ResearchPanel /> : null}

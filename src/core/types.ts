@@ -19,8 +19,15 @@ export type AssumptionTag = "zero-default" | "teaching-example" | "edited";
 
 export type ReserveMethod = "ladder" | "duration" | "stress" | "shortfall";
 
-/** Drift overlay on the short-rate path. The numbers that go with a regime are assumptions. */
+/** Drift overlay on the level factor. The numbers that go with a regime are assumptions. */
 export type RateRegime = "rising" | "flat" | "falling" | "shock-up" | "stagflation";
+
+/**
+ * `nelson_siegel` is the curve the portfolio sample uses.
+ * `svensson` adds a second curvature factor.
+ * `three_point` is the version-4 bills / 5-year / 10-year curve, kept for the model-risk panel.
+ */
+export type CurveModel = "nelson_siegel" | "svensson" | "three_point";
 
 /**
  * How a sleeve's annual simple return is built.
@@ -80,21 +87,47 @@ export interface Sleeve {
 
 export interface RateParams {
   regime: RateRegime;
-  /** Short rate at the beginning of 2027. */
+  /** Which curve builds the quotes. Nelson-Siegel is the default. */
+  curveModel: CurveModel;
+  /** Nelson-Siegel decay. 0.6 puts the curvature hump near 3 years. */
+  lambda: number;
+  /** Svensson second decay. Ignored by the three-factor curve. */
+  lambda2: number;
+  /**
+   * When true, beta0..beta3 are the starting factors.
+   * When false, the factors are the Nelson-Siegel fit to r0 and the two premia,
+   * so a zero premium stays a flat curve at r0.
+   */
+  useFactorStart: boolean;
+  beta0: number;
+  beta1: number;
+  beta2: number;
+  beta3: number;
+  /** Short rate at the beginning of 2027 when useFactorStart is false. The Nelson-Siegel limit β0+β1. */
   r0: number;
-  /** Mean-reversion speed per year. */
+  /** Mean-reversion speed of the level factor per year. */
   kappa: number;
-  /** Level the short rate reverts toward, before the regime drift. */
+  /** Level the level factor reverts toward, before the regime drift. */
   theta: number;
-  /** Annual volatility of the short-rate shock. Zero makes the regime path a single curve. */
+  /** Annual volatility of the level shock. Zero makes the regime path a single curve. */
   sigma: number;
-  /** Intermediate (~5y) yield minus the short rate. */
+  /** Mean-reversion speed of the slope factor. */
+  kappaSlope: number;
+  /** Mean-reversion speed of the curvature factor. */
+  kappaCurve: number;
+  thetaSlope: number;
+  thetaCurve: number;
+  /** Annual volatility of the slope shock. Stream 4, dimension 1. */
+  sigmaSlope: number;
+  /** Annual volatility of the curvature shock. Stream 4, dimension 2. */
+  sigmaCurve: number;
+  /** Intermediate (~5y) yield minus the short rate. Used when useFactorStart is false, and by the three-point model. */
   intermediatePremium: number;
-  /** Long (~10y+) yield minus the short rate, before the slope field. */
+  /** Long (~10y) yield minus the short rate, before the slope field. */
   longPremium: number;
-  /** Added to the long yield. A parallel move lives in the short rate. */
+  /** Added to the long yield. A parallel move lives in the level factor. */
   slope: number;
-  /** Correlation of the equity kernel with the same year's rate shock. Clipped to ±0.999. */
+  /** Correlation of the equity kernel with the level shock (stream 4, dimension 0). Clipped to ±0.999. */
   equityRateCorr: number;
   /**
    * Pace per year, as a positive decimal. Rising and stagflation add it.
@@ -390,6 +423,10 @@ export interface RatePathPoint {
   long: number;
   drift: number;
   shock: number;
+  beta0: number;
+  beta1: number;
+  beta2: number;
+  curveModel: CurveModel;
 }
 
 export interface SleeveMark {

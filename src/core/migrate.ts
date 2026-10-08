@@ -6,6 +6,7 @@ import { streamManifest } from "./rng";
 import type {
   Assumptions,
   BasketName,
+  CurveModel,
   EquityParams,
   MixSpec,
   RateParams,
@@ -18,6 +19,7 @@ import type {
 
 const KINDS: SleeveKind[] = ["parametric", "tbill", "intermediate", "long_treasury", "credit", "equity_index", "basket"];
 const REGIMES: RateRegime[] = ["rising", "flat", "falling", "shock-up", "stagflation"];
+const CURVES: CurveModel[] = ["nelson_siegel", "svensson", "three_point"];
 
 function finite(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
@@ -59,10 +61,24 @@ function hydrateRates(raw: unknown, fallback: RateParams): RateParams {
   return {
     ...fallback,
     regime: REGIMES.includes(source.regime as RateRegime) ? (source.regime as RateRegime) : fallback.regime,
+    curveModel: CURVES.includes(source.curveModel as CurveModel) ? (source.curveModel as CurveModel) : fallback.curveModel,
+    lambda: finite(source.lambda, fallback.lambda),
+    lambda2: finite(source.lambda2, fallback.lambda2),
+    useFactorStart: source.useFactorStart === true,
+    beta0: finite(source.beta0, fallback.beta0),
+    beta1: finite(source.beta1, fallback.beta1),
+    beta2: finite(source.beta2, fallback.beta2),
+    beta3: finite(source.beta3, fallback.beta3),
     r0: finite(source.r0, fallback.r0),
     kappa: finite(source.kappa, fallback.kappa),
     theta: finite(source.theta, fallback.theta),
     sigma: finite(source.sigma, fallback.sigma),
+    kappaSlope: finite(source.kappaSlope, fallback.kappaSlope),
+    kappaCurve: finite(source.kappaCurve, fallback.kappaCurve),
+    thetaSlope: finite(source.thetaSlope, fallback.thetaSlope),
+    thetaCurve: finite(source.thetaCurve, fallback.thetaCurve),
+    sigmaSlope: finite(source.sigmaSlope, fallback.sigmaSlope),
+    sigmaCurve: finite(source.sigmaCurve, fallback.sigmaCurve),
     intermediatePremium: finite(source.intermediatePremium, fallback.intermediatePremium),
     longPremium: finite(source.longPremium, fallback.longPremium),
     slope: finite(source.slope, fallback.slope),

@@ -21,8 +21,12 @@ for f in \
   bend/htm.bend \
   bend/range.bend \
   bend/trades.bend \
+  bend/ns.bend \
+  bend/instruments.bend \
+  bend/fan.bend \
   bend/main.bend
 do
   bend --check-only "$f"
 done
 bend bend/laws/LAWS.bend --verdict
+bend bend/laws/FAN.bend --verdict

@@ -68,6 +68,7 @@ export function methodologyFootnote(assumptions: Assumptions, output: ModelOutpu
     `Stream ${output.streams.idio.id} idiosyncratic. Step: ${output.streams.idio.step}. Dimension: ${output.streams.idio.dimension}.`,
     `Conditional 2031 to 2033: ${output.streams.conditional}`,
     `Rate regime on the card: ${assumptions.rates.regime}. Short rate at 2027: ${assumptions.rates.r0}.`,
+    `Curve model: ${assumptions.rates.curveModel}. Floor policy: zero-floor-on-quotes. A quoted yield does not go below zero.`,
     output.monteCarlo ? `Monte Carlo formula: ${output.monteCarlo.formula}` : "Monte Carlo did not run.",
     `Correlation stress (added to off-diagonals): ${assumptions.correlationStress}. Repaired: ${output.correlation.repaired ? "yes" : "no"}. Ridged: ${output.correlation.ridged ? "yes" : "no"}.`,
     output.correlation.warning ? `Correlation warning: ${output.correlation.warning}` : "Correlation warning: none.",

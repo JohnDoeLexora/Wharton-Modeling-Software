@@ -1,0 +1,4 @@
+ticker,qty,fill_price,date,mark_price
+EXA,100,20,2026-09-01,22
+EXB,40,50,2026-09-02,48
+EX-ETF,30,100,2026-09-03,101

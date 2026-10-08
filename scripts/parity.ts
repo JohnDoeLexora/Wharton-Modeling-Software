@@ -3,8 +3,10 @@
  * Monte Carlo parity: one fixed parametric book, written for the Python
  * cross-check in reference/python/parity_check.py.
  *
- * Bend does not run the multi-trial sample. The statistical comparison is
- * TypeScript versus the independent Python copy of the same contract.
+ * Bend also runs the 16-trial fixed-point fan in bend/fan.bend.
+ * Those dollars are in the golden lines (fan_trial0, fan_mean, fan_min, fan_max).
+ * The 200-trial statistical comparison is TypeScript versus the independent
+ * Python copy of the same contract.
  */
 import { spawnSync } from "node:child_process";
 import { writeFileSync } from "node:fs";

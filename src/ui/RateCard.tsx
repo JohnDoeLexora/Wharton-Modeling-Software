@@ -16,11 +16,29 @@ export function RateCard() {
     <section className="card" id="rate-regime">
       <h3>Rate regime</h3>
       <p className="muted">
-        One short-rate path per trial, on stream 4. The curve is three points: bills, intermediate, and long. Choosing
-        a regime copies that template’s drift, one-year shock, equity correlation, and equity drag into the fields
-        below. It leaves the starting short rate and the mean-reversion speed as you typed them. Templates are
-        illustrations, not forecasts. A parametric sleeve ignores this card.
+        One rate path per trial, on stream 4. The default curve is dynamic Nelson-Siegel: level, slope, and curvature.
+        Svensson adds a second curvature. The three-point curve is the older bills / 5-year / 10-year quote, kept so
+        you can see the spread. Floor policy zero-floor-on-quotes: a quoted yield does not go below zero. Factor states
+        can be negative. Choosing a regime copies that template’s drift, one-year shock, equity correlation, and equity
+        drag into the fields below. It leaves the starting short rate and the mean-reversion speed as you typed them.
+        Drift is added to the level. Templates are illustrations, not forecasts. A parametric sleeve ignores this card.
       </p>
+      <div className="choice-grid">
+        {(["nelson_siegel", "svensson", "three_point"] as const).map((model) => (
+          <label key={model} className={rates.curveModel === model ? "method on" : "method"}>
+            <input
+              type="radio"
+              name="curve-model"
+              checked={rates.curveModel === model}
+              onChange={() => update((current) => ({ ...current, rates: { ...current.rates, curveModel: model } }))}
+            />
+            <span>
+              <strong>{model === "nelson_siegel" ? "Nelson-Siegel" : model === "svensson" ? "Svensson" : "Three-point"}</strong>
+              <span className="formula">{model === "three_point" ? "Bills, 5-year, 10-year" : "Factor curve"}</span>
+            </span>
+          </label>
+        ))}
+      </div>
       <div className="choice-grid">
         {RATE_REGIMES.map((regime) => (
           <label key={regime} className={rates.regime === regime ? "method on" : "method"}>
@@ -67,6 +85,18 @@ export function RateCard() {
           value={rates.sigma}
           hint="Zero makes the regime path a single curve. The funded-status table forces this to zero; the portfolio sample does not."
           onChange={(sigma) => update((a) => ({ ...a, rates: { ...a.rates, sigma } }))}
+        />
+        <PercentField
+          label="Slope volatility"
+          value={rates.sigmaSlope}
+          hint="Shock to the slope factor, stream 4 dimension 1. Zero on the three-point curve."
+          onChange={(sigmaSlope) => update((a) => ({ ...a, rates: { ...a.rates, sigmaSlope } }))}
+        />
+        <PercentField
+          label="Curvature volatility"
+          value={rates.sigmaCurve}
+          hint="Shock to the curvature factor, stream 4 dimension 2."
+          onChange={(sigmaCurve) => update((a) => ({ ...a, rates: { ...a.rates, sigmaCurve } }))}
         />
         <PercentField
           label="Intermediate premium over the short rate"

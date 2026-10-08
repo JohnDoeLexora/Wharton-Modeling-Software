@@ -24,6 +24,8 @@ export interface Holding {
   kind: InstrumentKind;
   country: BondCountry | "";
   rationale: string;
+  /** Editable Trading Note draft. Empty until the team writes one. */
+  tradeNote?: string;
 }
 
 export interface MarketRow {
@@ -318,9 +320,9 @@ function csvEscape(value: string | number): string {
 }
 
 export function holdingsToCsv(holdings: Holding[]): string {
-  const header = "ticker,name,sleeve,weight,kind,country,rationale";
+  const header = "ticker,name,sleeve,weight,kind,country,rationale,trade_note";
   const rows = holdings.map((row) =>
-    [row.ticker, row.name, row.sleeve, row.weight, row.kind, row.country, row.rationale].map(csvEscape).join(","),
+    [row.ticker, row.name, row.sleeve, row.weight, row.kind, row.country, row.rationale, row.tradeNote ?? ""].map(csvEscape).join(","),
   );
   return [header, ...rows].join("\n") + "\n";
 }
@@ -374,6 +376,7 @@ export function holdingsFromCsv(text: string): Holding[] {
   const kind = headerIndex(header, ["kind"]);
   const country = headerIndex(header, ["country"]);
   const rationale = headerIndex(header, ["rationale"]);
+  const tradeNote = headerIndex(header, ["trade_note", "note"]);
   const body = ticker >= 0 ? rows.slice(1) : rows;
   const weightCol = ticker >= 0 ? weight : 3;
   const numbers = body.map((row) => Number(row[weightCol] ?? "")).filter((value) => Number.isFinite(value));
@@ -396,6 +399,7 @@ export function holdingsFromCsv(text: string): Holding[] {
         kind: instrument,
         country: countryCode,
         rationale: (row[ticker >= 0 ? rationale : 6] ?? "").trim(),
+        tradeNote: tradeNote >= 0 ? (row[tradeNote] ?? "").trim() : "",
       };
     })
     .filter((row) => row.ticker !== "" || row.name !== "");

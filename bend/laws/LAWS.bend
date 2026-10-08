@@ -15,6 +15,8 @@ import ../curve.bend as Curve
 import ../htm.bend as Htm
 import ../range.bend as Range
 import ../trades.bend as Trades
+import ../ns.bend as Ns
+import ../instruments.bend as Inst
 
 # Invariants of the Gao Bend engine.
 # Dollars are whole dollars. A weight of 1 is 1_000_000 ppm.
@@ -886,4 +888,52 @@ law rebalance_of_uneven_weights_conserves_dollars:
   {Proj.bal_sum(Proj.add_annual(Proj.Bal{100000, 50000}, 150000, 350000)) == 300000 : U32}
 
 def rebalance_of_uneven_weights_conserves_dollars():
+  {==}
+
+law quote_floor_holds_a_negative_step_at_zero:
+  {Rates.add_signed(0, 50000, True{}) == 0 : U32}
+
+def quote_floor_holds_a_negative_step_at_zero():
+  {==}
+
+law ns_quotes_floor_at_zero:
+  {Ns.floor_ppm() == 0 : U32}
+
+def ns_quotes_floor_at_zero():
+  {==}
+
+law ns_discount_factors_fall_with_maturity:
+  {Ns.positive_and_decreasing() == True{} : Bool}
+
+def ns_discount_factors_fall_with_maturity():
+  {==}
+
+law ns_flat_4pct_one_year_discount:
+  {Ns.df_1y() == 961538 : U32}
+
+def ns_flat_4pct_one_year_discount():
+  {==}
+
+law coupon_bond_dirty_price_is_discounted_cash_flows:
+  {Inst.dirty_5pct() == 9999 : U32}
+
+def coupon_bond_dirty_price_is_discounted_cash_flows():
+  {==}
+
+law zero_yield_dirty_price_is_the_cash_flows:
+  {Inst.dirty_zero() == 11000 : U32}
+
+def zero_yield_dirty_price_is_the_cash_flows():
+  {==}
+
+law target_maturity_fund_is_cash:
+  {Inst.target_at_maturity(10000) == 10000 : U32}
+
+def target_maturity_fund_is_cash():
+  {==}
+
+law etf_expense_drag_is_monotone:
+  {Inst.expense_is_monotone() == True{} : Bool}
+
+def etf_expense_drag_is_monotone():
   {==}

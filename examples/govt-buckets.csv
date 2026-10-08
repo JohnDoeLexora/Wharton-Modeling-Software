@@ -1,0 +1,6 @@
+maturity_years,weight,coupon,expense_ratio,style,years_to_target
+1,0.08,2.0,0.0015,constant_maturity,0
+2,0.12,2.5,0.0015,constant_maturity,0
+5,0.35,3.0,0.0015,constant_maturity,0
+7,0.25,3.0,0.0015,constant_maturity,0
+10,0.20,3.5,0.0015,constant_maturity,0

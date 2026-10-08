@@ -6,6 +6,7 @@
  */
 
 import { caseContribution, OPERATING_PAYMENT, OPERATING_PAYMENTS } from "./case";
+import { fanSummary } from "./fanMirror";
 import { rawWord } from "./rng";
 
 export const PPM = 1_000_000;
@@ -81,6 +82,16 @@ export interface GoldenLine {
   value: string;
 }
 
+function dfYears(years: number, yieldPpm: number): number {
+  let df = PPM;
+  for (let step = 0; step < years; step++) df = muldiv(df, PPM, PPM + yieldPpm);
+  return df;
+}
+
+function navAfter(start: number, grossPpm: number, expensePpm: number): number {
+  return muldiv(muldiv(start, PPM + grossPpm, PPM), PPM - expensePpm, PPM);
+}
+
 /** Lines bend/main.bend prints. Values are computed, then compared with that output. */
 export function goldenLines(): GoldenLine[] {
   const curve = curveAt(risingShort2033(), 5_000, 15_000, 0);
@@ -89,6 +100,7 @@ export function goldenLines(): GoldenLine[] {
   const second = fillShares(first.left, 250, 10_000);
   const bond = fillShares(20_000, 1_018, 1_000_000);
   const word = rawWord(42, 1, 0, 2027, 0);
+  const fan = fanSummary(16);
   const lines: [string, number][] = [
     ["cash_2027", caseContribution(2027)],
     ["cash_2028", caseContribution(2028)],
@@ -137,6 +149,22 @@ export function goldenLines(): GoldenLine[] {
     ["draw_lo", word.lo],
     ["boy_2033_annual", 450_000],
     ["ladder_yield_0", 500_000],
+    ["floor_ppm", 0],
+    ["ns_df_1y", dfYears(1, 40_000)],
+    ["ns_df_2y", dfYears(2, 40_000)],
+    ["ns_df_5y", dfYears(5, 40_000)],
+    ["ns_df_10y", dfYears(10, 40_000)],
+    ["dirty_zero", 11_000],
+    ["dirty_5pct", muldiv(500, dfYears(1, 50_000), PPM) + muldiv(10_500, dfYears(2, 50_000), PPM)],
+    ["nav_fee_0", navAfter(1_000_000, 50_000, 0)],
+    ["nav_fee_low", navAfter(1_000_000, 50_000, 1_000)],
+    ["nav_fee_high", navAfter(1_000_000, 50_000, 5_000)],
+    ["target_one_year", muldiv(10_000, dfYears(1, 40_000), PPM)],
+    ["fan_trials", fan.trials],
+    ["fan_trial0", fan.trial0],
+    ["fan_mean", fan.mean],
+    ["fan_min", fan.min],
+    ["fan_max", fan.max],
   ];
   return lines.map(([key, value]) => ({ key, value: String(value) }));
 }

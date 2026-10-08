@@ -3,10 +3,11 @@ import ./fix.bend as Fix
 
 # Short-rate regimes and a three-point curve, in parts per million.
 # 1_000_000 ppm is a rate of 1. A pace of 7_500 ppm is 75 basis points.
-# The integer short rate does not go below zero. The TypeScript engine
-# floors at -5%. Paths used by the laws stay non-negative, so the two
-# engines agree on those paths. A regime is an illustration the caller
-# selects. Nothing here is a forecast or a portfolio.
+# Floor policy `zero-floor-on-quotes`, shared with bend/ns.bend and
+# src/core/nelson.ts. A quoted rate does not go below zero. A negative
+# step from zero stays at zero (`add_signed`). The Nelson-Siegel factor
+# state itself is not floored; the quote is. A regime is an illustration
+# the caller selects. Nothing here is a forecast or a portfolio.
 
 type Regime is Data:
   Rising{}

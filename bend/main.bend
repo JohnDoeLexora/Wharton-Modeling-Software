@@ -15,6 +15,9 @@ import ./curve.bend as Curve
 import ./htm.bend as Htm
 import ./range.bend as Range
 import ./trades.bend as Trades
+import ./ns.bend as Ns
+import ./instruments.bend as Inst
+import ./fan.bend as Fan
 
 # Deterministic case table. Returns, fees, and the glide are inputs.
 # This run uses the zero-return, zero-fee path and the flat half / half
@@ -126,3 +129,16 @@ def main() -> IO(Unit):
     IO.print("trade_bond_left " ++ U32.show(Trades.left_of(Trades.golden_bond())))
     IO.print("weight_sum " ++ U32.show(Proj.weight_sum(350000)))
     IO.print("rebalance_dollars " ++ U32.show(Proj.bal_sum(Proj.add_annual(Proj.Bal{100000, 50000}, 150000, 350000))))
+    IO.print("floor_ppm " ++ U32.show(Ns.floor_ppm()))
+    IO.print("ns_df_1y " ++ U32.show(Ns.df_1y()))
+    IO.print("ns_df_2y " ++ U32.show(Ns.df_2y()))
+    IO.print("ns_df_5y " ++ U32.show(Ns.df_5y()))
+    IO.print("ns_df_10y " ++ U32.show(Ns.df_10y()))
+    IO.print("dirty_zero " ++ U32.show(Inst.dirty_zero()))
+    IO.print("dirty_5pct " ++ U32.show(Inst.dirty_5pct()))
+    IO.print("nav_fee_0 " ++ U32.show(Inst.nav_fee_0()))
+    IO.print("nav_fee_low " ++ U32.show(Inst.nav_fee_low()))
+    IO.print("nav_fee_high " ++ U32.show(Inst.nav_fee_high()))
+    IO.print("target_one_year " ++ U32.show(Inst.target_one_year(10000, 40000)))
+    IO.print("fan_trial0 " ++ U32.show(Fan.one_trial(0)))
+    IO.print(Fan.show_fan())

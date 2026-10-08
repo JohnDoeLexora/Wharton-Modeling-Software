@@ -1,5 +1,5 @@
 export const APP_NAME = "gao-modeling-toolkit";
-export const APP_VERSION = "4.0.0";
+export const APP_VERSION = "5.0.0";
 
 function readCommit(): string {
   try {

@@ -147,7 +147,7 @@ export function streamManifest(masterSeed: number): StreamManifest {
     rates: {
       id: STREAM.rates,
       step: "calendar year of the short-rate shock, 2027 through 2041",
-      dimension: "0. One path per trial, shared by every mix under this seed",
+      dimension: "0 level, 1 slope, 2 curvature. One path per trial, shared by every mix under this seed",
     },
     credit: {
       id: STREAM.credit,
