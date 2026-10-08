@@ -14,8 +14,15 @@ for f in \
   bend/corr.bend \
   bend/shock.bend \
   bend/project.bend \
+  bend/rates.bend \
+  bend/credit.bend \
+  bend/names.bend \
+  bend/curve.bend \
+  bend/htm.bend \
+  bend/range.bend \
+  bend/trades.bend \
   bend/main.bend
 do
   bend --check-only "$f"
 done
-bend bend/laws/LAWS.bend
+bend bend/laws/LAWS.bend --verdict

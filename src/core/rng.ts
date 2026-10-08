@@ -57,6 +57,25 @@ function toBig(value: number): bigint {
   return trunc < 0 ? -BigInt(-trunc) : BigInt(trunc);
 }
 
+/**
+ * The raw SplitMix64 word at one coordinate, split into the high and low 32 bits.
+ * This is the value Bend prints as `draw_hi` / `draw_lo`. The uniform and the
+ * normal are derived from it. Quote the word when a run has to match bit for bit.
+ */
+export function rawWord(
+  masterSeed: number,
+  streamId: number,
+  trial: number,
+  step: number,
+  dimension: number,
+): { hi: number; lo: number } {
+  let z = 0x9e3779b97f4a7c15n;
+  for (const part of [normalizeSeed(masterSeed), streamId, trial, step, dimension]) {
+    z = splitmix64(z ^ toBig(part));
+  }
+  return { hi: Number((z >> 32n) & 0xffffffffn), lo: Number(z & 0xffffffffn) };
+}
+
 /** Uniform on (0, 1), never 0 and never 1. */
 export function unitInterval(
   masterSeed: number,

@@ -84,3 +84,18 @@ def apply_go(+funded: U32, +gap: U32, +residual: U32, rule: Rule) -> Split:
 
 def apply_rule(+wealth: U32, +reserve: U32, rule: Rule) -> Split:
   apply_go(U32.min(wealth, reserve), Fix.sub_sat(reserve, wealth), Fix.sub_sat(wealth, reserve), rule)
+
+# A gift is valid when it is at most the surplus and the gift plus what is
+# kept adds back to that surplus. Both pieces are whole dollars, so the
+# gift is not negative. Underfunded wealth has a zero surplus and a zero gift.
+def gift_ok_go(+residual: U32, +contribution: U32, +flexibility: U32, fits: Bool) -> Bool:
+  match fits:
+    case False{}:
+      False{}
+    case True{}:
+      U32.is_eq((contribution + flexibility : U32), residual)
+
+def gift_ok(s: Split) -> Bool:
+  match s:
+    case Split{_, _, +residual, +contribution, +flexibility}:
+      gift_ok_go(residual, contribution, flexibility, U32.is_le(contribution, residual))

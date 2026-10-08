@@ -8,6 +8,13 @@ import ../facility.bend as Fac
 import ../rng.bend as Rng
 import ../bond.bend as Bond
 import ../corr.bend as Corr
+import ../rates.bend as Rates
+import ../credit.bend as Credit
+import ../names.bend as Names
+import ../curve.bend as Curve
+import ../htm.bend as Htm
+import ../range.bend as Range
+import ../trades.bend as Trades
 
 # Invariants of the Gao Bend engine.
 # Dollars are whole dollars. A weight of 1 is 1_000_000 ppm.
@@ -533,4 +540,350 @@ law idio_stream_is_6:
   {Rng.stream_id(Rng.Idio{}) == 6 : U32}
 
 def idio_stream_is_6():
+  {==}
+
+# --- V4 reference engine. Illustrations, not forecasts. ---
+
+law rising_template_short_at_2033_is_22500_ppm:
+  {Rates.rising_short_2033() == 22500 : U32}
+
+def rising_template_short_at_2033_is_22500_ppm():
+  {==}
+
+law flat_template_short_stays_zero:
+  {Rates.flat_short_2033() == 0 : U32}
+
+def flat_template_short_stays_zero():
+  {==}
+
+law falling_template_from_30000_is_15000_at_2030:
+  {Rates.falling_short_2030() == 15000 : U32}
+
+def falling_template_from_30000_is_15000_at_2030():
+  {==}
+
+law shock_up_adds_20000_ppm_in_2027:
+  {Rates.shock_short_2028() == 20000 : U32}
+
+def shock_up_adds_20000_ppm_in_2027():
+  {==}
+
+law stagflation_adds_10000_ppm_for_two_years:
+  {Rates.stagflation_short_2029() == 20000 : U32}
+
+def stagflation_adds_10000_ppm_for_two_years():
+  {==}
+
+law half_kappa_closes_half_the_gap:
+  {Rates.revert_one_step() == 50000 : U32}
+
+def half_kappa_closes_half_the_gap():
+  {==}
+
+law zero_sigma_drops_the_shock:
+  {Rates.vol_step(0, 0, 1000000) == 0 : U32}
+
+def zero_sigma_drops_the_shock():
+  {==}
+
+law unit_sigma_times_unit_shock_is_10000_ppm:
+  {Rates.vol_step(0, 10000, 1000000) == 10000 : U32}
+
+def unit_sigma_times_unit_shock_is_10000_ppm():
+  {==}
+
+law three_point_curve_adds_premia:
+  {Rates.curve_intermediate(Rates.curve_of(22500, 5000, 15000, 0)) == 27500 : U32}
+
+def three_point_curve_adds_premia():
+  {==}
+
+law three_point_long_adds_premium_and_slope:
+  {Rates.curve_long(Rates.curve_of(22500, 5000, 15000, 0)) == 37500 : U32}
+
+def three_point_long_adds_premium_and_slope():
+  {==}
+
+# Duration 5, convexity 0, carry 40%. A 2% rise removes more than a 1% rise.
+law mtm_monotone_decreasing_in_dy_when_duration_positive:
+  {U32.is_lt(Bond.mtm_ppm(400000, 5000, 0, 20000), Bond.mtm_ppm(400000, 5000, 0, 10000)) == True{} : Bool}
+
+def mtm_monotone_decreasing_in_dy_when_duration_positive():
+  {==}
+
+law mtm_pair_is_monotone:
+  {Bond.mtm_falls(400000, 5000, 0, 10000, 20000) == True{} : Bool}
+
+def mtm_pair_is_monotone():
+  {==}
+
+law mtm_one_percent_is_350000_ppm:
+  {Bond.mtm_ppm(400000, 5000, 0, 10000) == 350000 : U32}
+
+def mtm_one_percent_is_350000_ppm():
+  {==}
+
+law mtm_two_percent_is_300000_ppm:
+  {Bond.mtm_ppm(400000, 5000, 0, 20000) == 300000 : U32}
+
+def mtm_two_percent_is_300000_ppm():
+  {==}
+
+law yield_decline_raises_the_mark:
+  {U32.is_lt(Bond.mtm_signed(50000, 5000, 0, 0, False{}), Bond.mtm_signed(50000, 5000, 0, 10000, True{})) == True{} : Bool}
+
+def yield_decline_raises_the_mark():
+  {==}
+
+law zero_dy_wealth_equals_carry_growth:
+  {Bond.wealth_after(100000, 50000, 16000, 300000, 0) == 105000 : U32}
+
+def zero_dy_wealth_equals_carry_growth():
+  {==}
+
+# Face 100_000 and three 5_000 coupons. Marks do not change the cash.
+law htm_terminal_is_par_plus_coupons:
+  {Htm.terminal_golden(10000, 20000, 30000) == 115000 : U32}
+
+def htm_terminal_is_par_plus_coupons():
+  {==}
+
+law htm_terminal_ignores_the_mark_path:
+  {Htm.terminal_golden(10000, 20000, 30000) == Htm.terminal_golden(0, 0, 0) : U32}
+
+def htm_terminal_ignores_the_mark_path():
+  {==}
+
+law htm_matches_face_plus_coupon_times_years:
+  {Htm.par_plus_coupons(100000, 5000, 3) == 115000 : U32}
+
+def htm_matches_face_plus_coupon_times_years():
+  {==}
+
+law htm_annual_wealth_ignores_dy:
+  {Htm.wealth_htm(100000, 50000, 10000) == Htm.wealth_htm(100000, 50000, 99999) : U32}
+
+def htm_annual_wealth_ignores_dy():
+  {==}
+
+law htm_annual_wealth_is_the_carry:
+  {Htm.wealth_htm(100000, 50000, 25000) == 105000 : U32}
+
+def htm_annual_wealth_is_the_carry():
+  {==}
+
+law credit_expected_loss_is_60bp:
+  {Credit.golden_expected_loss() == 6000 : U32}
+
+def credit_expected_loss_is_60bp():
+  {==}
+
+law credit_draw_below_pd_loses_lgd:
+  {Credit.golden_loss_hit() == 600000 : U32}
+
+def credit_draw_below_pd_loses_lgd():
+  {==}
+
+law credit_draw_above_pd_loses_nothing:
+  {Credit.golden_loss_miss() == 0 : U32}
+
+def credit_draw_above_pd_loses_nothing():
+  {==}
+
+law credit_mtm_subtracts_expected_loss:
+  {Credit.golden_mtm() == 36000 : U32}
+
+def credit_mtm_subtracts_expected_loss():
+  {==}
+
+law credit_spread_widens_with_the_equity_drop:
+  {Credit.golden_widened_spread() == 92000 : U32}
+
+def credit_spread_widens_with_the_equity_drop():
+  {==}
+
+law single_name_factor_return:
+  {Names.golden_plain() == 70000 : U32}
+
+def single_name_factor_return():
+  {==}
+
+law single_name_jump_cuts_the_return:
+  {Names.golden_jump() == 40000 : U32}
+
+def single_name_jump_cuts_the_return():
+  {==}
+
+law single_name_fx_then_fee:
+  {Names.golden_fx_fee() == 49895 : U32}
+
+def single_name_fx_then_fee():
+  {==}
+
+law curve_pv_at_zero_is_500000:
+  {Curve.pv_zero() == 500000 : U32}
+
+def curve_pv_at_zero_is_500000():
+  {==}
+
+law nominal_reserve_is_500000:
+  {Curve.nominal_zero() == 500000 : U32}
+
+def nominal_reserve_is_500000():
+  {==}
+
+law bill_ladder_at_zero_is_500000:
+  {Curve.bill_zero() == 500000 : U32}
+
+def bill_ladder_at_zero_is_500000():
+  {==}
+
+law duration_matched_at_zero_is_500000:
+  {Curve.duration_zero() == 500000 : U32}
+
+def duration_matched_at_zero_is_500000():
+  {==}
+
+law positive_yield_pv_is_below_nominal:
+  {U32.is_lt(Curve.pv_at_one_percent(), Curve.nominal_zero()) == True{} : Bool}
+
+def positive_yield_pv_is_below_nominal():
+  {==}
+
+law one_percent_annuity_due_pv:
+  {Curve.pv_at_one_percent() == 478297 : U32}
+
+def one_percent_annuity_due_pv():
+  {==}
+
+law range_low_gift_is_100000:
+  {Range.golden_low() == 100000 : U32}
+
+def range_low_gift_is_100000():
+  {==}
+
+law range_high_gift_is_400000:
+  {Range.golden_high() == 400000 : U32}
+
+def range_high_gift_is_400000():
+  {==}
+
+law range_low_does_not_exceed_high:
+  {Range.ordered(Range.golden_low(), Range.golden_high()) == True{} : Bool}
+
+def range_low_does_not_exceed_high():
+  {==}
+
+law cap_gift_does_not_exceed_surplus:
+  {Fac.contribution_of(Fac.apply_rule(800000, 500000, Fac.Cap{999999})) == 300000 : U32}
+
+def cap_gift_does_not_exceed_surplus():
+  {==}
+
+law underfunded_gift_is_zero:
+  {Fac.contribution_of(Fac.apply_rule(100000, 500000, Fac.Retain{0})) == 0 : U32}
+
+def underfunded_gift_is_zero():
+  {==}
+
+law cap_gift_is_within_surplus:
+  {Fac.gift_ok(Fac.apply_rule(800000, 500000, Fac.Cap{250000})) == True{} : Bool}
+
+def cap_gift_is_within_surplus():
+  {==}
+
+law retain_gift_is_within_surplus:
+  {Fac.gift_ok(Fac.apply_rule(800000, 500000, Fac.Retain{250000})) == True{} : Bool}
+
+def retain_gift_is_within_surplus():
+  {==}
+
+law keep_gift_is_within_surplus:
+  {Fac.gift_ok(Fac.apply_rule(800000, 500000, Fac.Keep{250000})) == True{} : Bool}
+
+def keep_gift_is_within_surplus():
+  {==}
+
+law underfunded_gift_is_within_surplus:
+  {Fac.gift_ok(Fac.apply_rule(100000, 500000, Fac.Cap{999999})) == True{} : Bool}
+
+def underfunded_gift_is_within_surplus():
+  {==}
+
+law share_rounding_spends_299847:
+  {Trades.spent_of(Trades.golden_shares()) == 299847 : U32}
+
+def share_rounding_spends_299847():
+  {==}
+
+law share_rounding_leaves_153:
+  {Trades.left_of(Trades.golden_shares()) == 153 : U32}
+
+def share_rounding_leaves_153():
+  {==}
+
+law share_rounding_balances:
+  {Trades.balanced(Trades.golden_shares()) == True{} : Bool}
+
+def share_rounding_balances():
+  {==}
+
+law two_line_sheet_spends_the_capital:
+  {Trades.spent_of(Trades.golden_two()) == 300000 : U32}
+
+def two_line_sheet_spends_the_capital():
+  {==}
+
+law two_line_sheet_leaves_nothing:
+  {Trades.left_of(Trades.golden_two()) == 0 : U32}
+
+def two_line_sheet_leaves_nothing():
+  {==}
+
+law two_line_sheet_balances:
+  {Trades.balanced(Trades.golden_two()) == True{} : Bool}
+
+def two_line_sheet_balances():
+  {==}
+
+law bond_lot_rounding_spends_19342:
+  {Trades.spent_of(Trades.golden_bond()) == 19342 : U32}
+
+def bond_lot_rounding_spends_19342():
+  {==}
+
+law bond_lot_rounding_leaves_658:
+  {Trades.left_of(Trades.golden_bond()) == 658 : U32}
+
+def bond_lot_rounding_leaves_658():
+  {==}
+
+law bond_lot_rounding_balances:
+  {Trades.balanced(Trades.golden_bond()) == True{} : Bool}
+
+def bond_lot_rounding_balances():
+  {==}
+
+law policy_weight_350000_sums_to_one_million:
+  {Proj.weight_sum(350000) == 1000000 : U32}
+
+def policy_weight_350000_sums_to_one_million():
+  {==}
+
+law policy_weight_zero_sums_to_one_million:
+  {Proj.weight_sum(0) == 1000000 : U32}
+
+def policy_weight_zero_sums_to_one_million():
+  {==}
+
+law policy_weight_above_one_is_clipped_and_sums:
+  {Proj.weight_sum(2000000) == 1000000 : U32}
+
+def policy_weight_above_one_is_clipped_and_sums():
+  {==}
+
+law rebalance_of_uneven_weights_conserves_dollars:
+  {Proj.bal_sum(Proj.add_annual(Proj.Bal{100000, 50000}, 150000, 350000)) == 300000 : U32}
+
+def rebalance_of_uneven_weights_conserves_dollars():
   {==}

@@ -65,6 +65,15 @@ def split_total(+total: U32, +ppm: U32) -> Bal:
   +g = Fix.muldiv(total, ppm, Fix.unit())
   Bal{g, (total - g : U32)}
 
+# Policy weight plus the residual sleeve. The residual is unit − weight,
+# so the two ppm always add to 1_000_000. A weight above 1 is clipped.
+def clip_ppm(+ppm: U32) -> U32:
+  U32.min(ppm, Fix.unit())
+
+def weight_sum(+ppm: U32) -> U32:
+  +g = clip_ppm(ppm)
+  (g + (Fix.unit() - g : U32) : U32)
+
 def add_annual(bal: Bal, contrib: U32, +ppm: U32) -> Bal:
   match bal:
     case Bal{+g, +f}:
