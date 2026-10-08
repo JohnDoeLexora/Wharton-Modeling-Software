@@ -18,6 +18,9 @@ It will:
 - Apply rules you define to turn post-reserve wealth into a facility contribution and a flexibility balance.
 - Build a communication range with an explicit method, and write a draft sentence that names that method.
 - Score optional headlines with FinBERT, or with a clearly labeled demo word list, and store the scores as research notes.
+- Edit a holdings book (ticker, sleeve, weight), check orders against rules you can edit, and export a trade sheet that adds up to the capital.
+- Compare two holdings books on one seed, and run named stresses on the book that is loaded.
+- Read one screen of the current sample: P(funded), a low wealth percentile, the median gift, the 2031 range, the worst rate-regime template, and the worst stress you have already run.
 
 It will not:
 
@@ -276,6 +279,38 @@ Three methods are always shown. You mark one as the primary draft. The draft sen
 A draw that cannot fund the reserve contributes $0 to the facility. The range can therefore include zero because the operating commitment comes first, not because the rule is stingy.
 
 The histogram is the full-horizon contribution sample under the marked rule. A spike at zero usually means many draws failed to fund the reserve, or the marked rule retains the entire residual.
+
+## Holdings, rules, and a trade sheet
+
+The holdings tab is a list you type or import. It starts empty. Files under `examples/` show the CSV columns and are labeled as examples. They are not loaded at startup, and they are not a book for the competition.
+
+Weights are shares of the starting capital. Sleeve totals are the sum of the rows in that sleeve. **Use these weights in the model** copies those sleeve weights onto both glide knots, keeps the return assumptions of a sleeve whose name matches, and gives a new sleeve a zero μ and σ. An empty list does not change the assumptions.
+
+The trades tab starts from the 2026 WInS Trading Details note: $300,000 of capital, stocks priced at $5 or more, WInS ETFs allowed, WInS Treasury bonds for the US, UK, Germany, France, Italy, and the Netherlands, at most 200 trades, each order at most twice that security’s average daily volume, and no shorting or margin. Every one of those fields can be edited if the note in front of you says something else. The validator marks each order pass or fail and says why.
+
+A market snapshot is a CSV you paste or import: ticker, price, average daily volume, as-of date, and, for bonds, clean price, accrued interest, coupon, and maturity. The app does not fetch prices. The sheet buys whole shares, or bond face in the increment you set, and prices a bond off the dirty price (clean plus accrued). Leftover cash is a row. The cash plus the orders equals the capital, and the orders do not spend more than the capital.
+
+Compare pins one holdings list as a baseline and scores it against the list on screen with the same seed. The standard error next to P(funded) is √(p(1−p)/n) for the current book. The diff table is the weight and sleeve changes, not a judgment about which book is better.
+
+Exports are tagged. **EXTERNAL** is the shareable trade sheet and the annotated one-page results. **INTERNAL** is the working package. The prefix is part of the file name. The annotated page restates the sample in plain sentences: holdings, the wealth path, funding against the mix, the rate-regime table, mark-to-market against hold-to-maturity, the stresses you ran, the facility gift and the 2031 range, and the assumption table. It describes that sample. It does not pick a portfolio.
+
+## Stresses and the decision screen
+
+The decision tab is one screen for the sample that is already running: P(funded), p5 wealth, the median gift, the 2031 range, the rate-regime template with the lowest minimum funded ratio on the present-value ladder, and the stress with the lowest P(funded) among the ones you have run. Pin a sample to see the change when you edit. An empty stress tile means you have not run the stress panel yet.
+
+The stress panel can run five overlays on the current assumptions: a crash in a year you choose, a jump on basket rows marked as Taiwan exposure, a fatter Student-t, a lower equity drift, and a higher volatility. The default sizes are labeled illustrations. Change them. They are not forecasts, and they are not applied until you run them.
+
+The glide chart on the assumptions tab has a second picture: the same knots stacked so you can see the mix fill the portfolio. A gap under 100% is a knot that does not sum to 1. Portfolio projections stay paused until the knots are valid. **Normalize knots to 100%** rescales what you typed.
+
+Samples are cached by the hash of the assumptions. A repeat of the same inputs reuses the last sample and says so. A new hash shows how many trials have finished.
+
+## What Bend checks, and what the three engines share
+
+The Bend program in `bend/` is the reference for the locked arithmetic: case cash flows, the zero-yield reserve of $500,000, bond carry when the yield does not move, a mark-to-market price that falls when the yield rises and duration is positive, a hold-to-maturity bond that still pays par plus coupons, weights that sum to 1,000,000 ppm, a facility gift that stays between zero and the surplus, and a trade sheet that does not spend more than the capital. `bend bend/laws/LAWS.bend --verdict` prints `ALL PROOFS CHECK` when those laws hold.
+
+The TypeScript app is the interactive sample. `npm run parity` runs one seed through Bend, through this app’s engine, and through `reference/python/`. Cash flows, the integer bond return, the reserve present value, and the SplitMix64 word have to match. P(funded), p5, and p50 of a fixed 200-trial parametric book have to agree inside the sampling band. The Python file `reference/python/sim.py` is an independent copy of the analysis harness. It is a cross-check, not a second user interface, and it does not contain a recommended book.
+
+One limit is worth stating. The TypeScript short rate is floored at −5%. The Bend short rate does not go below zero. The proved paths and the printed goldens stay non-negative, so the two engines agree on those lines. A path that would have gone negative in the app is not the path Bend is proving.
 
 ## Inflation, and what is deliberately left out
 

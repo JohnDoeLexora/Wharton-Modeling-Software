@@ -1,8 +1,25 @@
 # Build status
 
-Schema 3 of the TypeScript workspace is the interactive toolkit (`npm run dev`). The Bend 2 package in `bend/` proves the locked case arithmetic and the identity that a bond return equals its carry when the yield does not change. Neither engine contains a recommended portfolio, reserve, facility contribution, or co-sponsor range.
+Schema 3 of the TypeScript workspace is the interactive toolkit (`npm run dev`), now at app version 4.0.0. The Bend 2 package in `bend/` is the reference for the locked arithmetic. Neither engine contains a recommended portfolio, reserve, facility contribution, or co-sponsor range. The holdings editor starts empty.
 
 Checked on 2026-10-07.
+
+## What changed in V4
+
+- Bend now prices the V3 model in integer arithmetic: short-rate regimes and a three-point curve, duration and convexity with carry, credit spread, default, and recovery, one-factor names with jumps and FX, four reserve methods, glide weights, and the facility gift with a 2031 band. Laws cover locked cash flows, carry when the yield does not move, a mark-to-market price that falls as yield rises, hold-to-maturity par plus coupons, weights of 1,000,000 ppm, a zero-yield ladder of 500,000, a gift that stays inside the surplus, and a trade sheet that does not exceed the capital. `bend bend/laws/LAWS.bend --verdict` prints `ALL PROOFS CHECK`.
+- `npm run verify` runs the Vitest suite, `npm run build`, the Bend verdict, and `npm run parity`. Parity compares Bend’s printed goldens with `src/core/golden.ts`, and compares a 200-trial parametric sample with `reference/python/`. That Python file is a copy of the independent analysis harness. It is a cross-check, not a book of holdings. The TypeScript short rate floors at −5%. Bend’s short rate does not go below zero. The goldens are the non-negative paths.
+- A holdings editor (CSV in and out, sleeve totals), an editable rules form defaulting to the 2026 WInS Trading Details note, a market-snapshot import, and a trade sheet of whole shares or bond face. Totals equal the capital. Each order is pass or fail with a reason. Compare scores two books on one seed and lists what changed. Exports are prefixed `EXTERNAL - ` or `INTERNAL - `. An annotated HTML page restates the sample in plain sentences.
+- A decision screen, five named stresses, a stacked glide preview, a run-hash cache, and a trial counter while a sample is in flight. Tooltips name the source of the assumption. Example CSVs live under `examples/` and are not defaults.
+- The browser key for the holdings book is `gao-toolkit-v4-book`. Assumption schema stays 3 (`gao-toolkit-v3`).
+
+## Verification on 2026-10-07
+
+- `npm run verify` exited 0. That is 71 Vitest tests, `npm run build`, `bend bend/laws/LAWS.bend --verdict` printing `ALL PROOFS CHECK`, and parity. Parity matched 47 deterministic keys, including the locked cash flows and the SplitMix word. The 200-trial parametric sample agreed with the Python cross-check: P(funded) 0.72, and the same p5 and p50.
+- Headless Chrome at 1280×900 walked Decision, Holdings (CSV import, arrow keys between cells, sleeve totals), Trades (rules, snapshot import, a failing stock-price check with a reason, then a sheet that adds up to the capital), Compare (a diff and a paired sample with a standard error), Export (annotated HTML tagged INTERNAL, then the header tag back to EXTERNAL), Stresses (all five), and the stacked glide preview. The same pages were opened at 390×844. Document `scrollWidth` matched `clientWidth` at both widths. The annotated file does not contain “we recommend”.
+
+## What changed in V3
+
+Schema 3 of the TypeScript workspace is the interactive toolkit. The earlier Bend package proved the locked case arithmetic and the identity that a bond return equals its carry when the yield does not change.
 
 ## What changed in V3
 

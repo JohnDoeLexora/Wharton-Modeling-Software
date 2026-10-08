@@ -20,6 +20,10 @@ Open the URL Vite prints (usually `http://127.0.0.1:5173`).
 
 `npm run build` typechecks and writes a static bundle to `dist/`.
 
+`npm run verify` runs the tests, the production build, `bend bend/laws/LAWS.bend --verdict` (it must print `ALL PROOFS CHECK`), and `npm run parity`. Parity compares Bend, the TypeScript engine, and the independent Python cross-check in `reference/python/`.
+
+The holdings, trades, compare, stress, and decision tabs are a workflow for a book you type. The editor starts empty. `examples/` holds CSV shapes labeled as examples. Nothing in the app is a recommended portfolio. Downloaded file names start with `EXTERNAL - ` or `INTERNAL - `.
+
 ## Run the Bend engine
 
 The interactive workspace above is unchanged. `bend/` is a second engine, written in [Bend 2](https://bend2.dev) (the `bend` compiler, 2.0.x). It locks the same case arithmetic and checks it with `law` proofs. It does not replace `npm run dev`, and it does not load FinBERT.
@@ -39,6 +43,8 @@ Dollars are whole dollars. Weights and rates are parts per million: `1000000` pp
 
 The Bend projection in the demo uses two sleeves and caller-supplied rates. The flat half-and-half knots are the starting table. Mu, sigma, fees, stress, and facility rules are arguments. The laws in `bend/laws/LAWS.bend` record case facts and arithmetic identities. They do not pick a portfolio.
 
+Bend is the reference for that locked arithmetic: cash flows, the zero-yield ladder, bond carry and a monotone mark-to-market move, hold-to-maturity par plus coupons, ppm weights, the facility gift bounds, and trade-sheet rounding. The interactive sample stays in TypeScript. A full multi-trial percentile fan is not printed by Bend. `npm run parity` checks the deterministic lines against TypeScript and checks a fixed 200-trial parametric sample against `reference/python/`. The TypeScript short rate can go to −5%. The Bend short rate stops at zero. The goldens are on the non-negative paths, where the two agree.
+
 The in-app **How to model** tab is the same text as [docs/HOW_TO_MODELING.md](docs/HOW_TO_MODELING.md). Read that before treating a chart as a conclusion. It covers liability versus growth capital, discounting the ten $50,000 payments, scenarios versus Monte Carlo, glide paths, communication ranges, how the modules map onto Trading Notes / the IPS / the Final Report, and what FinBERT is for.
 
 ## What you can do in the app
@@ -51,7 +57,8 @@ The in-app **How to model** tab is the same text as [docs/HOW_TO_MODELING.md](do
 - Compare four operating-reserve methods against the ten $50,000 payments, which stay visible as a schedule. A second table shows present-value, nominal $500,000, T-bill, and duration-matched sizes under each rate-regime template.
 - Apply facility rules only to wealth left after the reserve, and build a 2031 communication range by scenario envelope, full-horizon percentiles, or a two-year conditional sample.
 - Inspect effective weights, the correlation matrix actually used, and the case contribution schedule. Compute local one-at-a-time sensitivities when you ask. Save named runs and compare two of them.
-- Export a run package (assumptions, results, CSV, methodology footnote) for an appendix.
+- Type a holdings book, check it against editable competition rules, and export a trade sheet of whole shares or bond face. Compare two books on one seed. Run crash, Taiwan-jump, fat-tail, lower-drift, and higher-volatility stresses. The decision tab shows P(funded), p5, the median gift, the 2031 range, the worst regime template, and the worst stress already run.
+- Export a run package (assumptions, results, CSV, methodology footnote) for an appendix, or a one-page annotated HTML file. File names are tagged EXTERNAL or INTERNAL.
 - Optionally score headlines and save the scores as research notes. Notes never enter the projection.
 
 The certainty definition box starts empty. The case asks the team to write that sentence.

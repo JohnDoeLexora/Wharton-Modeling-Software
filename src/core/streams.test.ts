@@ -204,7 +204,7 @@ describe("schema migration, ledger, and the run package", () => {
     const output = runModel(assumptions);
     const pack = buildRunPackage(assumptions, output, [], "2026-10-02T00:00:00.000Z");
     expect(pack.packageVersion).toBe(1);
-    expect(pack.software.version).toBe("3.0.0");
+    expect(pack.software.version).toBe("4.0.0");
     expect(pack.assumptionsHash).toHaveLength(64);
     expect(pack.winsTradingPnlIncluded).toBe(false);
     expect(pack.finbertInProjection).toBe(false);

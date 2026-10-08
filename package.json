@@ -1,7 +1,7 @@
 {
   "name": "gao-modeling-toolkit",
   "private": true,
-  "version": "3.0.0",
+  "version": "4.0.0",
   "type": "module",
   "description": "Exploration toolkit for the Wharton Investment Competition Laura Gao case. Not an investment recommendation.",
   "scripts": {
@@ -9,6 +9,8 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "test": "vitest run",
+    "parity": "sh bend/parity.sh",
+    "verify": "npm test && npm run build && bend bend/laws/LAWS.bend --verdict && npm run parity",
     "bend:demo": "bend bend/main.bend",
     "bend:laws": "bend bend/laws/LAWS.bend",
     "bend:check": "sh bend/check.sh",
