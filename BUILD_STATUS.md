@@ -1,8 +1,22 @@
 # Build status
 
-Schema 3 of the TypeScript workspace is the interactive toolkit (`npm run dev`), now at app version 4.0.0. The Bend 2 package in `bend/` is the reference for the locked arithmetic. Neither engine contains a recommended portfolio, reserve, facility contribution, or co-sponsor range. The holdings editor starts empty.
+Schema 3 of the TypeScript workspace is the interactive toolkit (`npm run dev`), now at app version 5.0.0. The Bend 2 package in `bend/` is the reference for the locked arithmetic. Neither engine contains a recommended portfolio, reserve, facility contribution, or co-sponsor range. The holdings editor starts empty.
 
-Checked on 2026-10-07.
+Checked on 2026-10-08.
+
+## What changed in V5
+
+- The default curve is dynamic Nelson-Siegel (level, slope, curvature), with Svensson as a fourth factor and the version-4 three-point curve kept for the model-risk panel. The five regime buttons stay drift templates on the level. Floor policy `zero-floor-on-quotes`: a quoted annual zero does not go below zero in TypeScript or in Bend. Factor states are not floored. The version-4 TypeScript floor of −5% is retired. Assumption schema stays 3. The browser key for assumptions stays `gao-toolkit-v3`. The holdings book stays `gao-toolkit-v4-book`.
+- A curve CSV (Treasury wide percent file, or long `as_of, tenor_years, par_yield`) is bootstrapped to annual zeros and fit by OLS. Factor κ and σ are an annual AR(1), κ = 1 − φ. `scripts/fetch_treasury.py` writes `data/treasury_par_yields.csv`, `data/french_ff_annual.csv`, and `data/PROVENANCE.md`. The backtest rolls a bill book and a duration-style book over consecutive 7-year windows of that history. Equity total return, when the file has it, is context and is not a portfolio weight.
+- Treasuries are priced from the semiannual coupon schedule: dirty, clean, accrued, key-rate durations, hold-to-maturity at the purchase yield, and mark-to-market on the current curve. A bond ETF is maturity buckets plus an expense ratio, with roll-down and constant-maturity rebalancing. A target-maturity fund is cash on its liquidation date. A bills ETF earns the short quote minus the expense, and the reinvestment path is explicit. The immunization report shows liability present value, duration, convexity, key-rate durations, the gap against the imported buckets, and surplus-at-risk.
+- Bend runs a 16-trial fixed-point fan (seed 42, years 2027–2030, half equity and half the 5-year quote). `bend/laws/FAN.bend` rechecks the integer contract (trial count, seed, 4% start, case contributions) so the checker does not reduce the F32 fan beside every other module. The proven kernel's F32 reduction of one trial passed 6 GB and was killed, so the dollar band is executed parity: `fan_trial0`, `fan_mean`, `fan_min`, and `fan_max`. New laws also cover positive decreasing Nelson-Siegel discount factors, a coupon dirty price equal to the discounted cash flows, a target fund equal to cash at maturity, monotone expense drag, and the zero floor.
+- The Tracking tab imports fills and labels the result WInS P&L. That number does not enter `runModel`. Rebalance ideas respect the trade budget and the volume multiple. A Trading Note draft is built from role, sleeve, weight, and modeled stats and stops at 300 characters. The Curve tab plots standard error against trial count and reruns headline metrics under Nelson-Siegel, the three-point curve, and 1.5× level volatility.
+- Example shapes for a curve, buckets, fills, and a tiny equity file live under `examples/`. They are not loaded at startup.
+
+## Verification on 2026-10-08
+
+- `npm run verify` exited 0. That is 84 Vitest tests, `npm run build`, `bend bend/laws/LAWS.bend --verdict` and `bend bend/laws/FAN.bend --verdict` each printing `ALL PROOFS CHECK`, and parity. Parity matched 63 deterministic keys, including the locked cash flows, the Nelson-Siegel discount factors, and the 16-trial fan (`fan_trial0` 570859, `fan_mean` 515116, `fan_min` 414380, `fan_max` 684805). The 200-trial parametric sample agreed with the Python cross-check: P(funded) 0.72, p5 391938.17, p50 555189.44.
+- Headless Chrome on the production preview walked the Curve tab (example snapshot residuals, the 2016 history windows, and the 50-trial model-risk panel), the Instruments tab (dirty, clean, accrued, and the immunization report), and the Tracking tab (example fills, the WInS P&L label, a trading note under 300 characters, and the counter after an edit). The holdings editor kept the example tickers. Document `scrollWidth` stayed within `clientWidth` at 1280×900 and at 390×844.
 
 ## What changed in V4
 

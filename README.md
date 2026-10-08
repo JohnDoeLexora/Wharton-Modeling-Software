@@ -20,15 +20,17 @@ Open the URL Vite prints (usually `http://127.0.0.1:5173`).
 
 `npm run build` typechecks and writes a static bundle to `dist/`.
 
-`npm run verify` runs the tests, the production build, `bend bend/laws/LAWS.bend --verdict` (it must print `ALL PROOFS CHECK`), and `npm run parity`. Parity compares Bend, the TypeScript engine, and the independent Python cross-check in `reference/python/`.
+`npm run verify` runs the tests, the production build, `bend bend/laws/LAWS.bend --verdict` and `bend bend/laws/FAN.bend --verdict` (each must print `ALL PROOFS CHECK`), and `npm run parity`. Parity compares Bend, the TypeScript engine, and the independent Python cross-check in `reference/python/`.
 
 The holdings, trades, compare, stress, and decision tabs are a workflow for a book you type. The editor starts empty. `examples/` holds CSV shapes labeled as examples. Nothing in the app is a recommended portfolio. Downloaded file names start with `EXTERNAL - ` or `INTERNAL - `.
+
+The Curve tab fits a Nelson-Siegel curve to a file you import and rolls historical 7-year reserve windows. The Instruments tab prices a Treasury from its coupon schedule and a bond fund from maturity buckets. The Tracking tab imports WInS fills. Profit and loss there is labeled WInS P&L and is not an input. `scripts/fetch_treasury.py` downloads the public Treasury par yield curve into `data/` and writes `data/PROVENANCE.md`.
 
 ## Run the Bend engine
 
 The interactive workspace above is unchanged. `bend/` is a second engine, written in [Bend 2](https://bend2.dev) (the `bend` compiler, 2.0.x). It locks the same case arithmetic and checks it with `law` proofs. It does not replace `npm run dev`, and it does not load FinBERT.
 
-Install Bend if `bend version` is missing (`curl -fsSL https://bend-lang.com/install.sh | sh`). This repo was checked with Bend 2.0.36.
+Install Bend if `bend version` is missing (`curl -fsSL https://bend-lang.com/install.sh | sh`). This repo was checked with Bend 2.0.35.
 
 ```bash
 bend bend/main.bend          # or: npm run bend:demo
@@ -43,7 +45,7 @@ Dollars are whole dollars. Weights and rates are parts per million: `1000000` pp
 
 The Bend projection in the demo uses two sleeves and caller-supplied rates. The flat half-and-half knots are the starting table. Mu, sigma, fees, stress, and facility rules are arguments. The laws in `bend/laws/LAWS.bend` record case facts and arithmetic identities. They do not pick a portfolio.
 
-Bend is the reference for that locked arithmetic: cash flows, the zero-yield ladder, bond carry and a monotone mark-to-market move, hold-to-maturity par plus coupons, ppm weights, the facility gift bounds, and trade-sheet rounding. The interactive sample stays in TypeScript. A full multi-trial percentile fan is not printed by Bend. `npm run parity` checks the deterministic lines against TypeScript and checks a fixed 200-trial parametric sample against `reference/python/`. The TypeScript short rate can go to −5%. The Bend short rate stops at zero. The goldens are on the non-negative paths, where the two agree.
+Bend is the reference for that locked arithmetic: cash flows, the zero-yield ladder, bond carry and a monotone mark-to-market move, hold-to-maturity par plus coupons, ppm weights, the facility gift bounds, trade-sheet rounding, Nelson-Siegel discount factors, coupon dirty prices, target-fund cash at maturity, monotone expense drag, and a 16-trial fixed-point fan of one rate, one bond, and one equity sleeve. `bend/laws/FAN.bend` rechecks the fan's integer contract (16 trials, seed 42, a 4% start, the case contributions). The proven kernel's F32 reduction of the fan itself exceeded this machine, so the dollar band is executed: `npm run parity` matches `fan_trial0`, `fan_mean`, `fan_min`, and `fan_max` to TypeScript, and checks a fixed 200-trial parametric sample against `reference/python/`. Floor policy `zero-floor-on-quotes`: a quoted yield does not go below zero in either engine. Nelson-Siegel factor states can be negative. The quote cannot.
 
 The in-app **How to model** tab is the same text as [docs/HOW_TO_MODELING.md](docs/HOW_TO_MODELING.md). Read that before treating a chart as a conclusion. It covers liability versus growth capital, discounting the ten $50,000 payments, scenarios versus Monte Carlo, glide paths, communication ranges, how the modules map onto Trading Notes / the IPS / the Final Report, and what FinBERT is for.
 
@@ -51,7 +53,9 @@ The in-app **How to model** tab is the same text as [docs/HOW_TO_MODELING.md](do
 
 - Edit sleeve returns, volatility, a glide path, correlation (with an optional off-diagonal stress), inflation (purchasing-power view only), and the Monte Carlo sample size and seed.
 - Choose a sleeve’s pricing: parametric μ/σ, T-bills, intermediate Treasuries, long Treasuries, credit, a fat-tailed equity index, or a satellite basket. Bond and credit placeholders that appear when you switch pricing are labeled assumptions.
-- Pick a rate regime. The button copies an illustration into the drift fields and leaves the short-rate level and the mean-reversion speed as you typed them.
+- Pick a rate regime and a curve. Nelson-Siegel is the default. The three-point curve remains for a model-risk comparison. The regime button copies an illustration into the drift fields and leaves the short-rate level and the mean-reversion speed as you typed them. Quoted yields do not go below zero.
+- Fit an imported Treasury curve, price a bond from its cash flows, and read an immunization gap against the ten $50,000 payments.
+- Import WInS fills, see drift against the holdings book, and edit a Trading Note that stops at 300 characters. That P&L is labeled and stays out of the projection.
 - Project beginning-of-year wealth from 2027 through 2042 on bear, base, and bull paths, plus percentiles of a seeded sample, including p1. One master seed feeds six named streams: portfolio, reserve, bootstrap, short rate, credit default, and single-name shocks. The 2031–2033 conditional band reuses the portfolio stream. Compared mixes reuse the same seed.
 - Read mark-to-market wealth next to hold-to-maturity wealth, so a rate rise shows up as a price term on a long bond and a small price term on a bill.
 - Compare four operating-reserve methods against the ten $50,000 payments, which stay visible as a schedule. A second table shows present-value, nominal $500,000, T-bill, and duration-matched sizes under each rate-regime template.

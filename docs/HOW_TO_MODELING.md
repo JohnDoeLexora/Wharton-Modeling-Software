@@ -21,6 +21,9 @@ It will:
 - Edit a holdings book (ticker, sleeve, weight), check orders against rules you can edit, and export a trade sheet that adds up to the capital.
 - Compare two holdings books on one seed, and run named stresses on the book that is loaded.
 - Read one screen of the current sample: P(funded), a low wealth percentile, the median gift, the 2031 range, the worst rate-regime template, and the worst stress you have already run.
+- Fit a Nelson-Siegel curve to a Treasury file you import, and roll the reserve schedule over historical 7-year windows.
+- Price a Treasury from its coupon schedule, and price a bond ETF from maturity buckets, an expense ratio, and the simulated curve.
+- Import WInS fills, compare realized weights with the holdings book, and draft a Trading Note of at most 300 characters. The profit and loss on that page stays labeled WInS P&L.
 
 It will not:
 
@@ -30,6 +33,30 @@ It will not:
 - Turn a sentiment score into a trade or a portfolio weight.
 
 Amber fields in the app are assumptions. If a number is already filled in at startup, it is either a case fact or a zero. The **teaching example** button loads round figures so the charts move. Those figures are not capital-market assumptions. Do not paste them into a Trading Note, the IPS, or the Final Report.
+
+## Curve, cash-flow instruments, and the shared floor
+
+The rate card’s default curve is dynamic Nelson-Siegel. Three factors — level, slope, and curvature — step once a year. Svensson adds a second curvature factor. The older three-point curve (bills, 5-year, 10-year) is still on the card so a model-risk table can show the spread. The five regime buttons are drift templates on the level. They are illustrations. A click does not replace the short-rate level or the mean-reversion speed you typed.
+
+Floor policy `zero-floor-on-quotes`, shared by the TypeScript engine and Bend: a quoted annual zero is max(0, the model yield). Discount factors are 1/(1+z)^τ on that quote, then a running minimum, so a longer maturity never has a larger discount factor than a shorter one. The factor state itself is not floored, which is what lets the slope be negative. The version-4 TypeScript floor of −5% is retired. Both engines now stop a quote at zero.
+
+A curve snapshot CSV is either the Treasury wide par-yield file or a long file with `as_of`, `tenor_years`, and `par_yield`. Wide files are percent, including a bill printed as 0.50. A long-form cell is a decimal unless its absolute value is above 1, in which case it is read as percent. `scripts/fetch_treasury.py` downloads the public Treasury history into `data/` and writes `data/PROVENANCE.md`. The fit is ordinary least squares of the bootstrapped annual zeros on the Nelson-Siegel loadings. Factor speed and volatility are an annual AR(1) on the last fitted curve in each calendar year: κ = 1 − φ. The residual chart is a description of that file. It is not a forecast.
+
+The backtest rolls a bill book and a duration-style book over consecutive 7-year windows of that history, withdrawing the case $50,000 schedule. If a Ken French annual file is imported, equity total return (Mkt-RF + RF) is compounded beside the window. That equity path is context. It is not a portfolio weight, and it is not fed into the case projection. A gap in the years drops that window.
+
+Individual Treasuries are priced from the semiannual coupon schedule. Dirty price is the sum of cash flows discounted on the quoted curve. Clean price is dirty minus accrued interest. Accrued interest is zero on a coupon date. Key-rate durations bump the quoted zero with a tent around 1, 2, 5, 10, and 30 years. Hold-to-maturity book value discounts the remaining cash flows at the purchase yield. Mark-to-market uses the current curve. At maturity both equal the face amount.
+
+A bond ETF is a set of maturity buckets and an expense ratio, not a single duration. Constant-maturity rebalancing sells the rolled-down bond and buys the original maturity at the model price, so that trade does not change the year’s wealth. The duration still moves when the curve moves. A target-maturity fund shortens each year and is cash on its liquidation date. The expense drag is multiplicative: (1 + gross) × (1 − expense) − 1. A higher expense never raises the net return. A bills ETF earns the simulated short quote, minus the expense, and the reinvestment path is shown next to a path locked at the first year’s yield.
+
+The immunization report, at any case year, shows the reserve liability’s present value, duration, convexity, and key-rate durations, then the gap against the buckets you imported: asset dollar key-rate duration minus liability dollar key-rate duration. Surplus-at-risk shifts the assets with duration and convexity and reprices the liability. It is a report. It does not pick a reserve.
+
+## WInS tracking and the Trading Note
+
+The Tracking tab imports fills (ticker, quantity, fill price, date, and an optional mark). It shows realized weight against the holdings target, the drift, and a rebalance idea that stays inside the trade budget (200 unless you edit the rules) and the volume multiple (2× unless you edit it). The profit and loss is labeled **WInS P&L**. `runModel` does not read it. Case projections still start from the locked contributions and the return assumptions.
+
+The note helper fills a draft from the holding’s role, sleeve, weight, and modeled duration, yield, and expense, then stops at 300 characters. The counter is on the field. You edit the sentence. The app does not submit it.
+
+The Curve tab also plots the standard error of mean 2033 wealth against the trial count of the sample you already ran, and it can rerun the same book under the Nelson-Siegel curve, the three-point curve, and a higher level volatility. The spread is the disagreement. It is not a confidence interval for a decision.
 
 ## Case facts the model locks
 
@@ -138,7 +165,7 @@ Changing trials, the seed, μ, σ, correlation, the stress, the return model, th
 
 ## Rates, duration, and single names
 
-The rate card is an annual short-rate step: last year’s short rate, plus mean reversion `κ(θ − r)`, plus a regime drift, plus `σ` times a stream-4 normal. The rate is floored at −5%. The shock during a year shows up in the next beginning-of-year level. From that short rate the card builds three yields: bills at the short rate, an intermediate yield equal to the short rate plus a premium you type, and a long yield equal to the short rate plus a long premium and a slope.
+The rate card steps once a year. On Nelson-Siegel, the level, slope, and curvature each get mean reversion and a stream-4 shock (dimensions 0, 1, and 2). The regime drift is added to the level. A quoted yield is floored at zero. The shock during a year shows up in the next beginning-of-year quote. Bills are the short quote, the intermediate quote is the 5-year yield, and the long quote is the 10-year yield. With the three-point model selected, those three quotes are the short rate, the short rate plus the intermediate premium, and the short rate plus the long premium and the slope, and the short-rate state itself is floored at zero.
 
 Five regime buttons copy an illustration into the drift, the 2027 level shock, the equity-rate correlation, and the equity drag. They do not replace the starting short rate or `κ`. The illustrations are: rising +75 bp per year for three years, flat with no drift, falling −50 bp per year for three years (the pace field stays positive and the falling regime subtracts it), shock-up +200 bp during 2027, and stagflation +100 bp per year for two years with a negative equity drag. Edit the fields after you click. None of those numbers is a forecast.
 
@@ -306,11 +333,11 @@ Samples are cached by the hash of the assumptions. A repeat of the same inputs r
 
 ## What Bend checks, and what the three engines share
 
-The Bend program in `bend/` is the reference for the locked arithmetic: case cash flows, the zero-yield reserve of $500,000, bond carry when the yield does not move, a mark-to-market price that falls when the yield rises and duration is positive, a hold-to-maturity bond that still pays par plus coupons, weights that sum to 1,000,000 ppm, a facility gift that stays between zero and the surplus, and a trade sheet that does not spend more than the capital. `bend bend/laws/LAWS.bend --verdict` prints `ALL PROOFS CHECK` when those laws hold.
+The Bend program in `bend/` is the reference for the locked arithmetic: case cash flows, the zero-yield reserve of $500,000, bond carry when the yield does not move, a mark-to-market price that falls when the yield rises and duration is positive, a hold-to-maturity bond that still pays par plus coupons, weights that sum to 1,000,000 ppm, a facility gift that stays between zero and the surplus, a trade sheet that does not spend more than the capital, Nelson-Siegel discount factors that stay positive and fall with maturity, a coupon bond whose dirty price is the sum of its discounted cash flows, a target-maturity fund that is cash at maturity, and an expense drag that falls as the fee rises. `bend bend/laws/LAWS.bend --verdict` prints `ALL PROOFS CHECK` when those laws hold. `bend bend/laws/FAN.bend --verdict` rechecks the 16-trial fan's integer contract: 16 trials, seed 42, a 4% starting level, and the 2027 and 2028 case contributions. The fan file is separate so that contract is not loaded beside every other module. The proven kernel's F32 reduction of the fan passed 6 GB on one trial and was killed, so the dollar band is the executed check in `bend/main.bend`.
 
-The TypeScript app is the interactive sample. `npm run parity` runs one seed through Bend, through this app’s engine, and through `reference/python/`. Cash flows, the integer bond return, the reserve present value, and the SplitMix64 word have to match. P(funded), p5, and p50 of a fixed 200-trial parametric book have to agree inside the sampling band. The Python file `reference/python/sim.py` is an independent copy of the analysis harness. It is a cross-check, not a second user interface, and it does not contain a recommended book.
+The TypeScript app is the interactive sample. `npm run parity` runs one seed through Bend, through this app’s engine, and through `reference/python/`. Cash flows, the integer bond return, the reserve present value, the Nelson-Siegel discount factors, the 16-trial fan dollars, and the SplitMix64 word have to match. P(funded), p5, and p50 of a fixed 200-trial parametric book have to agree inside the sampling band. The Python file `reference/python/sim.py` is an independent copy of the analysis harness. It is a cross-check, not a second user interface, and it does not contain a recommended book.
 
-One limit is worth stating. The TypeScript short rate is floored at −5%. The Bend short rate does not go below zero. The proved paths and the printed goldens stay non-negative, so the two engines agree on those lines. A path that would have gone negative in the app is not the path Bend is proving.
+Quoted yields use the same floor in both engines: zero. A Nelson-Siegel factor can be negative. The quote made from it cannot.
 
 ## Inflation, and what is deliberately left out
 
