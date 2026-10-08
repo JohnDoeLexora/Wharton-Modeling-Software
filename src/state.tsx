@@ -1,8 +1,9 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { teachingAssumptions, zeroAssumptions } from "./core/defaults";
-import { createLedgerEntry, type LedgerEntry } from "./core/ledger";
+import { assumptionsHash, createLedgerEntry, type LedgerEntry } from "./core/ledger";
 import type { WorkerRequest, WorkerResponse } from "./core/model.worker";
 import { migrateStoredWorkspace } from "./core/migrate";
+import { cachedOutput, rememberRun, runCached } from "./core/runCache";
 import { runModel } from "./core/run";
 import type { SensitivityReport } from "./core/sensitivity";
 import { runSensitivity } from "./core/sensitivity";
@@ -18,6 +19,10 @@ interface Store {
   output: ModelOutput;
   /** True while a worker is replacing the sample. The previous output stays on screen. */
   pending: boolean;
+  /** Trials finished in the worker that is currently replacing the sample. */
+  progress: { done: number; total: number } | null;
+  /** True when the sample on screen was reused for this assumption hash. */
+  fromCache: boolean;
   /** True while a ledger row is waiting for a sample that matches its snapshot. */
   savePending: boolean;
   sensitivity: SensitivityReport | null;
@@ -53,8 +58,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [assumptions, setAssumptions] = useState<Assumptions>(initial.assumptions);
   const [notes, setNotes] = useState<ResearchNote[]>(initial.notes);
   const [ledger, setLedger] = useState<LedgerEntry[]>(initial.ledger);
-  const [output, setOutput] = useState<ModelOutput>(() => runModel(initial.assumptions));
+  const [output, setOutput] = useState<ModelOutput>(() => {
+    const first = runModel(initial.assumptions);
+    rememberRun(assumptionsHash(initial.assumptions), first);
+    return first;
+  });
   const [pending, setPending] = useState(false);
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  const [fromCache, setFromCache] = useState(false);
   const [savePending, setSavePending] = useState(false);
   const [sensitivity, setSensitivity] = useState<SensitivityReport | null>(null);
   const [sensitivityPending, setSensitivityPending] = useState(false);
@@ -86,6 +97,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const worker = new Worker(new URL("./core/model.worker.ts", import.meta.url), { type: "module" });
       worker.onmessage = (event: MessageEvent<WorkerResponse>) => {
         const data = event.data;
+        if (data.kind === "progress") {
+          if (data.id === modelRequest.current) setProgress({ done: data.done, total: data.total });
+          return;
+        }
         if (data.kind === "model") {
           const queued = pendingSaves.current.get(data.id);
           if (queued) {
@@ -94,8 +109,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             setSavePending(pendingSaves.current.size > 0);
           }
           if (data.id === modelRequest.current) {
+            rememberRun(assumptionsHash(assumptionsRef.current), data.output);
             setOutput(data.output);
             setPending(false);
+            setProgress(null);
+            setFromCache(false);
           }
           return;
         }
@@ -115,7 +133,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             }
             setSavePending(pendingSaves.current.size > 0);
           }
-          if (data.id === modelRequest.current) setPending(false);
+          if (data.id === modelRequest.current) {
+            setPending(false);
+            setProgress(null);
+          }
           if (data.id === sensitivityRequest.current) setSensitivityPending(false);
         }
       };
@@ -129,8 +150,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           setLedger((prev) => [...entries.reverse(), ...prev]);
         }
         setSavePending(false);
+        setProgress(null);
         const requestId = ++modelRequest.current;
-        const next = runModel(assumptionsRef.current);
+        const next = runCached(assumptionsRef.current);
         if (modelRequest.current === requestId) {
           setOutput(next);
           setPending(false);
@@ -153,14 +175,25 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
     const requestId = ++modelRequest.current;
     const timer = window.setTimeout(() => {
-      setPending(true);
-      const worker = ensureWorker();
-      if (!worker) {
-        setOutput(runModel(assumptions));
+      const hit = cachedOutput(assumptions);
+      if (hit) {
+        setOutput(hit);
         setPending(false);
+        setProgress(null);
+        setFromCache(true);
         return;
       }
-      const message: WorkerRequest = { kind: "model", id: requestId, assumptions };
+      setPending(true);
+      setFromCache(false);
+      setProgress(null);
+      const worker = ensureWorker();
+      if (!worker) {
+        setOutput(runCached(assumptions));
+        setPending(false);
+        setFromCache(false);
+        return;
+      }
+      const message: WorkerRequest = { kind: "model", id: requestId, assumptions, slot: "main" };
       worker.postMessage(message);
     }, 80);
     return () => window.clearTimeout(timer);
@@ -180,6 +213,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       ledger,
       output,
       pending,
+      progress,
+      fromCache,
       savePending,
       sensitivity,
       sensitivityPending,
@@ -219,7 +254,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         }
       },
     }),
-    [assumptions, notes, ledger, output, pending, savePending, sensitivity, sensitivityPending],
+    [assumptions, notes, ledger, output, pending, progress, fromCache, savePending, sensitivity, sensitivityPending],
   );
 
   return <Ctx.Provider value={store}>{children}</Ctx.Provider>;

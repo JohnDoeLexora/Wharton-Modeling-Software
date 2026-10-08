@@ -5,7 +5,7 @@ import type { Assumptions, ShockModel, Sleeve, SleeveKind } from "../core/types"
 import { useStore } from "../state";
 import { BasketEditor } from "./BasketEditor";
 import { CaseTimeline, Issues, TagPill } from "./bits";
-import { LineChart } from "./Chart";
+import { LineChart, StackedWeights } from "./Chart";
 import { NumberField, PercentField } from "./fields";
 import { Inspector } from "./Inspector";
 import { MixEditor } from "./MixEditor";
@@ -238,6 +238,8 @@ export function AssumptionsPanel() {
           downloadName="gao-glide-weights"
         />
         <p className="muted">The chart shows weights, not dollars. The vertical scale is a share of the portfolio.</p>
+        <StackedWeights years={years} series={weightSeries} ariaLabel="Stacked glide-path mix from 2027 to 2042" />
+        <p className="muted">The stacked preview is the same knots, drawn as a mix that fills the portfolio. A gap under 100% is a knot that does not sum to 1.</p>
       </section>
 
       <section className="card">

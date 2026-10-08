@@ -156,6 +156,60 @@ function ChartDownloads({
   );
 }
 
+/** Stacked share of the portfolio. Each series is a weight, not dollars. */
+export function StackedWeights({
+  years,
+  series,
+  ariaLabel,
+}: {
+  years: number[];
+  series: { name: string; color: string; values: number[] }[];
+  ariaLabel: string;
+}) {
+  if (years.length === 0 || series.length === 0) return <p className="muted">Nothing to chart yet.</p>;
+  const width = 760;
+  const height = 220;
+  const pad = { l: 44, r: 12, t: 12, b: 28 };
+  const innerW = width - pad.l - pad.r;
+  const innerH = height - pad.t - pad.b;
+  const x = (index: number) => pad.l + (index * innerW) / Math.max(1, years.length - 1);
+  const y = (value: number) => pad.t + (1 - value) * innerH;
+  const layers = series.map((item) => item.values.map((value) => (Number.isFinite(value) ? Math.max(0, value) : 0)));
+  const top: number[][] = [];
+  const running = years.map(() => 0);
+  for (const layer of layers) {
+    const next = running.map((value, index) => value + (layer[index] ?? 0));
+    top.push(next);
+    for (let index = 0; index < running.length; index++) running[index] = next[index];
+  }
+  return (
+    <figure className="chart" id="glide-stack">
+      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={ariaLabel}>
+        <line x1={pad.l} x2={width - pad.r} y1={y(0)} y2={y(0)} className="grid" />
+        <line x1={pad.l} x2={width - pad.r} y1={y(1)} y2={y(1)} className="grid" />
+        <text x={pad.l - 6} y={y(1) + 4} textAnchor="end" className="tick">
+          100%
+        </text>
+        <text x={pad.l - 6} y={y(0) + 4} textAnchor="end" className="tick">
+          0%
+        </text>
+        {top.map((ceiling, index) => {
+          const floor = index === 0 ? years.map(() => 0) : top[index - 1];
+          return <path key={series[index].name} d={areaPath(floor, ceiling, x, y)} fill={series[index].color} opacity={0.85} />;
+        })}
+      </svg>
+      <figcaption className="legend">
+        {series.map((item) => (
+          <span key={item.name}>
+            <i className="swatch" style={{ background: item.color }} />
+            {item.name}
+          </span>
+        ))}
+      </figcaption>
+    </figure>
+  );
+}
+
 function linePath(values: number[], x: (i: number) => number, y: (v: number) => number): string {
   return values
     .map((value, index) => `${index === 0 ? "M" : "L"}${x(index).toFixed(1)},${y(value).toFixed(1)}`)

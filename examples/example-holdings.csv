@@ -1,0 +1,5 @@
+ticker,name,sleeve,weight,kind,country,rationale
+EXA,Example share A,Growth,40,stock,,Example row. Not a holding.
+EXB,Example share B,Funding,25,stock,,Example row. Not a holding.
+EX-ETF,Example ETF,Growth,20,etf,,Example row. Not a holding.
+EX-US-NOTE,Example US note,Funding,15,bond,US,Example row. Not a holding.

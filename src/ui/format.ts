@@ -28,15 +28,33 @@ export function compactUsd(value: number): string {
   return sign + "$" + Math.round(abs);
 }
 
+export type ExportAudience = "EXTERNAL" | "INTERNAL";
+
+let exportAudience: ExportAudience = "EXTERNAL";
+
+/** Every downloaded file name starts with this tag. EXTERNAL is shareable. INTERNAL is the working file. */
+export function setExportAudience(next: ExportAudience) {
+  exportAudience = next;
+}
+
+export function currentExportAudience(): ExportAudience {
+  return exportAudience;
+}
+
+export function taggedName(filename: string): string {
+  if (filename.startsWith("EXTERNAL - ") || filename.startsWith("INTERNAL - ")) return filename;
+  return `${exportAudience} - ${filename}`;
+}
+
 export function download(filename: string, content: string, type: string) {
-  downloadBlob(filename, new Blob([content], { type }));
+  downloadBlob(taggedName(filename), new Blob([content], { type }));
 }
 
 export function downloadBlob(filename: string, blob: Blob) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = filename;
+  link.download = taggedName(filename);
   document.body.appendChild(link);
   link.click();
   link.remove();

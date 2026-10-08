@@ -1,15 +1,26 @@
 import { useState, type KeyboardEvent } from "react";
+import { BookProvider, useBook } from "../bookState";
 import { StoreProvider, useStore } from "../state";
 import { AssumptionsPanel } from "./AssumptionsPanel";
+import { ComparePanel } from "./ComparePanel";
+import { DashboardPanel } from "./DashboardPanel";
 import { ExportPanel } from "./ExportPanel";
 import { FacilityPanel } from "./FacilityPanel";
 import { GuidePanel } from "./GuidePanel";
+import { HoldingsPanel } from "./HoldingsPanel";
 import { LedgerPanel } from "./LedgerPanel";
 import { ProjectionsPanel } from "./ProjectionsPanel";
 import { ResearchPanel } from "./ResearchPanel";
 import { ReservePanel } from "./ReservePanel";
+import { StressPanel } from "./StressPanel";
+import { TradesPanel } from "./TradesPanel";
 
 const TABS = [
+  ["decision", "Decision"],
+  ["holdings", "Holdings"],
+  ["trades", "Trades"],
+  ["compare", "Compare"],
+  ["stress", "Stresses"],
   ["assumptions", "Assumptions"],
   ["projections", "Projections"],
   ["reserve", "Operating reserve"],
@@ -25,14 +36,17 @@ type Tab = (typeof TABS)[number][0];
 export function App() {
   return (
     <StoreProvider>
-      <Shell />
+      <BookProvider>
+        <Shell />
+      </BookProvider>
     </StoreProvider>
   );
 }
 
 function Shell() {
-  const [tab, setTab] = useState<Tab>("assumptions");
-  const { pending, output } = useStore();
+  const [tab, setTab] = useState<Tab>("decision");
+  const { pending, progress, output } = useStore();
+  const { audience, setAudience } = useBook();
   const onTabsKeyDown = (event: KeyboardEvent<HTMLElement>) => {
     const index = TABS.findIndex(([id]) => id === tab);
     let next = index;
@@ -64,8 +78,11 @@ function Shell() {
       </div>
       <p className="status-line" role="status">
         {pending
-          ? "Updating the sample…"
+          ? `Updating the sample… ${progress ? `${progress.done.toLocaleString("en-US")} / ${progress.total.toLocaleString("en-US")} trials` : "starting"}`
           : `Master seed ${output.masterSeed}. Streams 1–6: portfolio, reserve, bootstrap, rates, credit, single-name. Schema ${output.schemaVersion}.`}
+        <button type="button" className="audience" onClick={() => setAudience(audience === "EXTERNAL" ? "INTERNAL" : "EXTERNAL")}>
+          Export tag: {audience}
+        </button>
       </p>
       <nav className="tabs" role="tablist" aria-label="Toolkit sections" onKeyDown={onTabsKeyDown}>
         {TABS.map(([id, label]) => (
@@ -84,6 +101,11 @@ function Shell() {
         ))}
       </nav>
       <main id="content" role="tabpanel" aria-labelledby={`tab-${tab}`}>
+        {tab === "decision" ? <DashboardPanel /> : null}
+        {tab === "holdings" ? <HoldingsPanel /> : null}
+        {tab === "trades" ? <TradesPanel /> : null}
+        {tab === "compare" ? <ComparePanel /> : null}
+        {tab === "stress" ? <StressPanel /> : null}
         {tab === "assumptions" ? <AssumptionsPanel /> : null}
         {tab === "projections" ? <ProjectionsPanel /> : null}
         {tab === "reserve" ? <ReservePanel /> : null}

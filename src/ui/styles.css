@@ -99,6 +99,18 @@ p { margin: 0.4rem 0; }
   color: var(--navy);
   font-variant-numeric: tabular-nums;
   font-size: 0.88rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  align-items: center;
+}
+button.audience {
+  background: transparent;
+  color: var(--teal);
+  border: 1px solid var(--teal);
+  border-radius: 999px;
+  padding: 0.15rem 0.65rem;
+  font-size: 0.78rem;
 }
 
 main { padding: 0 1.5rem 2.5rem; max-width: 1180px; min-width: 0; }
@@ -218,6 +230,31 @@ table { border-collapse: collapse; width: 100%; font-size: 0.92rem; }
 caption { text-align: left; color: var(--muted); font-size: 0.82rem; padding-bottom: 0.35rem; }
 th, td { border-bottom: 1px solid var(--line); padding: 0.4rem 0.45rem; vertical-align: top; text-align: left; }
 th { font-size: 0.78rem; letter-spacing: 0.02em; color: var(--navy); }
+.table-wrap thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--paper-2);
+  box-shadow: inset 0 -1px 0 var(--line);
+}
+.source-tip {
+  text-decoration: underline dotted;
+  text-underline-offset: 0.18em;
+  cursor: help;
+}
+#holdings-editor td input,
+#holdings-editor td select { min-width: 6.2rem; }
+label.file-button {
+  display: inline-flex;
+  align-items: center;
+  position: relative;
+  background: transparent;
+  color: var(--teal);
+  border: 1px solid var(--teal);
+  border-radius: 6px;
+  padding: 0.45rem 0.75rem;
+  cursor: pointer;
+}
 .num { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
 .num.ok { color: var(--good); }
 .num.bad { color: var(--bad); font-weight: 700; }

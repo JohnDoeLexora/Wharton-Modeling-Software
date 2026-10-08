@@ -1,26 +1,45 @@
+import { useBook } from "../bookState";
+import { annotatedHtml } from "../core/annotated";
 import { facilityCsv, notesCsv, projectionsCsv, reserveCsv, workspaceJson } from "../core/exportData";
 import { assumptionsHash } from "../core/ledger";
 import { methodologyFootnote } from "../core/package";
 import { useStore } from "../state";
-import { DisclaimerLine } from "./bits";
+import { DisclaimerLine, SourceTip } from "./bits";
 import { download } from "./format";
 
 export function ExportPanel() {
   const { assumptions, output, notes } = useStore();
+  const { holdings, stresses, audience, setAudience } = useBook();
   const stamp = new Date().toISOString().slice(0, 10);
   const hash = assumptionsHash(assumptions);
   const footnote = methodologyFootnote(assumptions, output, hash);
 
   return (
-    <div className="stack">
+    <div className="stack" id="export-panel">
       <header className="panel-head">
         <h2>Export</h2>
         <p className="lede">
           Download the current assumptions and the numbers they produce. Use them as an appendix while the team writes.
-          The files are not a finished Investment Policy Statement or Final Report.
+          The files are not a finished Investment Policy Statement or Final Report. Every file name starts with{" "}
+          <code>EXTERNAL - </code> or <code>INTERNAL - </code>.
         </p>
       </header>
       <section className="card">
+        <h3>
+          <SourceTip
+            label="Who the file is for"
+            source="EXTERNAL is a shareable sheet or annotated result. INTERNAL is the working notes and the full run package. The prefix is applied when the file downloads."
+          />
+        </h3>
+        <div className="row-actions">
+          <button type="button" className={audience === "EXTERNAL" ? "" : "ghost"} onClick={() => setAudience("EXTERNAL")} aria-pressed={audience === "EXTERNAL"}>
+            EXTERNAL
+          </button>
+          <button type="button" className={audience === "INTERNAL" ? "" : "ghost"} onClick={() => setAudience("INTERNAL")} aria-pressed={audience === "INTERNAL"}>
+            INTERNAL
+          </button>
+          <span className="muted">Current tag: {audience}.</span>
+        </div>
         <div className="row-actions">
           <button type="button" onClick={() => download(`gao-projections-${stamp}.csv`, projectionsCsv(output), "text/csv")}>
             Projections CSV
@@ -42,6 +61,18 @@ export function ExportPanel() {
           </button>
           <button type="button" className="ghost" onClick={() => download(`gao-methodology-${stamp}.txt`, footnote, "text/plain")}>
             Methodology footnote
+          </button>
+          <button
+            type="button"
+            onClick={() =>
+              download(
+                "annotated results.html",
+                annotatedHtml({ assumptions, output, holdings, stresses }),
+                "text/html",
+              )
+            }
+          >
+            Annotated results
           </button>
         </div>
         <p className="muted">

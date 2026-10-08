@@ -1,0 +1,5 @@
+ticker,price,avg_daily_volume,as_of,kind,clean_price,accrued,coupon,maturity,name
+EXA,25,2000000,2026-10-01,stock,,,,,Example share A
+EXB,40,1500000,2026-10-01,stock,,,,,Example share B
+EX-ETF,50,3000000,2026-10-01,etf,,,,,Example ETF
+EX-US-NOTE,100,0,2026-10-01,bond,99.2,0.8,4,2033-01-15,Example US note

@@ -217,6 +217,11 @@ export function priceTrial(args: {
         htmReturn = parts.htm;
         priceTerm = parts.price;
       }
+      if (assumptions.crashYear != null && assumptions.crashYear === year && !isBondKind(kind)) {
+        const shock = assumptions.crashShock ?? 0;
+        mtmReturn += shock;
+        htmReturn += shock;
+      }
       mtmReturn = applyExpense(mtmReturn, sleeve.expenseRatio);
       htmReturn = applyExpense(htmReturn, sleeve.expenseRatio);
       mtm.push(floorReturn(mtmReturn, assumptions.normalFloor));

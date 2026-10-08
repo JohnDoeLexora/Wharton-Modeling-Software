@@ -2,7 +2,8 @@ import { caseContribution, LAST_PROJECTION_YEAR, FIRST_PROJECTION_YEAR, yearInde
 import { prepareCorrelation } from "./correlation";
 import { weightsAtYear } from "./glide";
 import { correlatedShocks, dot, normalizeSeed, simpleReturn, sum } from "./math";
-import { priceTrial, usesPricedModel, type YearSlice } from "./pricing";
+import { priceTrial, sleeveKindOf, usesPricedModel, type YearSlice } from "./pricing";
+import { isBondKind } from "./bonds";
 import { STREAM, standardNormal, unitInterval } from "./rng";
 import type { Assumptions, ReturnModel, ScenarioName, Sleeve, YearPoint } from "./types";
 
@@ -91,15 +92,24 @@ function bootstrapSleeveReturns(
   });
 }
 
+function crashReturns(input: PathInput, calendarYear: number, returns: number[]): number[] {
+  if (!input.source || input.source.crashYear == null || input.source.crashYear !== calendarYear) return returns;
+  const shock = input.source.crashShock ?? 0;
+  if (!shock) return returns;
+  return returns.map((value, index) => (isBondKind(sleeveKindOf(input.sleeves[index])) ? value : value + shock));
+}
+
 function drawReturns(input: PathInput, calendarYear: number): number[] {
   if (input.mode === "scenario") {
     const scenario = input.scenario ?? "base";
-    return input.sleeves.map((sleeve) => sleeveScenarioReturn(sleeve, scenario));
+    return crashReturns(input, calendarYear, input.sleeves.map((sleeve) => sleeveScenarioReturn(sleeve, scenario)));
   }
   if (!input.source) {
     return input.sleeves.map(() => 0);
   }
-  return mcSleeveReturns(input.source, input.trial, calendarYear, input.factor);
+  const returns = mcSleeveReturns(input.source, input.trial, calendarYear, input.factor);
+  const priced = input.shockModel !== "block_bootstrap" && usesPricedModel(input.sleeves);
+  return priced ? returns : crashReturns(input, calendarYear, returns);
 }
 
 function turnoverCost(previous: number[] | null, policy: number[], bps: number): number {

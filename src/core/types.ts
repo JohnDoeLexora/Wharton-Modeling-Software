@@ -251,6 +251,12 @@ export interface Assumptions {
   costs: CostParams;
   /** Extra mixes for the comparison table. Empty means the table is not run. */
   mixes: MixSpec[];
+  /**
+   * Additive simple return applied to non-bond sleeves in this calendar year.
+   * Absent or null means the path is unchanged. A stress, not a forecast.
+   */
+  crashYear?: number | null;
+  crashShock?: number;
 }
 
 export interface YearPoint {

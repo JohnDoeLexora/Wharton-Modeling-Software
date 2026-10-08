@@ -234,7 +234,11 @@ const VIEW_FORMULA =
   "Mark-to-market wealth uses the duration price term. Hold-to-maturity wealth earns the beginning yield (and any default loss) and ignores the price term. " +
   "A bill with a short duration shows a small price term. A long bond shows about −duration × the yield change. Neither figure is a forecast.";
 
-export function runModel(assumptions: Assumptions): ModelOutput {
+export interface RunHooks {
+  onProgress?: (done: number, total: number) => void;
+}
+
+export function runModel(assumptions: Assumptions, hooks?: RunHooks): ModelOutput {
   const errors = validate(assumptions);
   const sample = sampleSettings(assumptions);
   const masterSeed = sample.seed;
@@ -365,6 +369,9 @@ export function runModel(assumptions: Assumptions): ModelOutput {
     }
     wealth2031.push(wealthInYear(path, COMMUNICATION_YEAR));
     wealth2033.push(wealthInYear(path, DECISION_YEAR));
+    if (hooks?.onProgress && (trial % 50 === 49 || trial + 1 === assumptions.trials)) {
+      hooks.onProgress(trial + 1, assumptions.trials);
+    }
   }
 
   if (nonFinite) {
