@@ -1,8 +1,27 @@
 # Build status
 
-Schema 3 of the TypeScript workspace is the interactive toolkit (`npm run dev`), now at app version 7.0.0. The Bend 2 package in `bend/` is the reference for the locked arithmetic. Neither engine contains a recommended portfolio, reserve, facility contribution, or co-sponsor range. The holdings editor starts empty. The Risk tab starts empty until a history is imported. Case cash flows are unchanged: beginning-of-2033 wealth on the zero-return path is $450,000, and the 0% ladder is $500,000.
+Schema 3 of the TypeScript workspace is the interactive toolkit (`npm run dev`), now at app version 8.0.0. The Bend 2 package in `bend/` is the reference for the locked arithmetic. Neither engine contains a recommended portfolio, reserve, facility contribution, or co-sponsor range. The holdings editor starts empty. The Risk tab starts empty until a history is imported. Case cash flows are unchanged: beginning-of-2033 wealth on the zero-return path is $450,000, and the 0% ladder is $500,000.
 
-Checked on 2026-10-12.
+Checked on 2026-10-13.
+
+## What changed in V8
+
+One portfolio engine. The TypeScript year step is canonical (`docs/MODEL_SPEC.md`). `reference/python/kernel.py` runs that same step on the same SplitMix64 draws. The old Philox book in `reference/python/sim.py` is gone; the file keeps the three bond helpers the parity checker extracts. Optional overlays (Markov regimes, a shared chi-square, sector and USD/TWD factors, an investment-grade spread, issuer credit tied to equity, target-maturity duration, and a binned 2031 range) sit behind flags and default to off, so a book with no `kernel` object is unchanged.
+
+Citations recompute vol, beta and its standard error, correlation, max drawdown, return, Sharpe, yield, duration, and spread on three windows (1y daily, 3y weekly, 5y monthly) and name the source file, its SHA-256, the as-of date, and the estimator. A quote outside the cross-window range, or an as-of date more than five trading days behind the date you pass, is flagged. The ladder report prices the 2033–2042 liability and a greedy cash-flow match under the $300,000 WInS capital. Frontiers are labeled exploration under assumptions. Tear sheets, a reproduce bundle, and a board workbook export from the Export tab. The shell has a command palette, undo, a shareable run link, and a cancelable worker.
+
+### Headline numbers
+
+Teaching-book headlines from version 7 are unchanged: zero-cost base path $593,470.93 at beginning of 2033, $590,343.95 at 50 bps, $0 at 10,000 bps; trial-curve reserve $500,000, P(funded) 0.779, mean gift $91,694; fixed 3% ladder $439,305.45, P(funded) 0.924, mean gift $152,389; median wealth $582,525.51.
+
+Priced mode, five mixes, 20,000 trials, seed 42. The version 7 note recorded 26,209 ms after the shared schedule (282,021 ms before it) and a median of $537,384.48 on that timing sample. The locked workload in `scripts/perf.ts` (an equity index and T-bills) finished in 1,805 ms on 2026-10-13. Median wealth is $580,913.4554481686. `npm run perf` fails if that median moves by more than 1e-6 or if the run exceeds 3 seconds. Errors were empty. Kernel overlays were off.
+
+### Verification on 2026-10-13 (V8)
+
+- `npm run verify` exited 0. That is 146 Vitest tests, `npm run build`, `bend bend/laws/LAWS.bend --verdict` and `bend bend/laws/FAN.bend --verdict` each printing `ALL PROOFS CHECK`, parity (71 deterministic keys; pathwise gaps 4.657e-10 and 2.328e-10), `parity-full` (20 golden books and 5 rich books, largest relative gap 4.61e-16), `verify-stats`, and a headless walkthrough of every tab at 1280×900. The walk opened the command palette and the page does not contain “we recommend”.
+- Coverage on the finance core (`npm run coverage`) was 98.70% lines, 84.04% branches, and 99.28% functions. The gate is 90% lines, 75% branches, and 85% functions.
+- `npm run paper` wrote `docs/METHODS.pdf`. `scripts/export-example.ts` wrote `examples/INTERNAL - example-book.html` and the matching PDF from `examples/example-holdings.csv`. That sheet is an export of the example file.
+- Stryker is configured on attribution, the ladder, the frontiers, and the kernel (`npm run mutate`). The score file is `docs/mutation-score.json` when that command has been run.
 
 ## What changed in V7
 

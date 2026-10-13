@@ -1,5 +1,5 @@
-import { useRef, type RefObject } from "react";
-import { compactUsd, downloadPng, downloadSvg } from "./format";
+import { useState, useRef, type RefObject } from "react";
+import { compactUsd, download, downloadPng, downloadSvg } from "./format";
 
 interface Series {
   name: string;
@@ -25,6 +25,7 @@ export function LineChart({
   formatTick = compactUsd,
   yDomain,
   downloadName = "gao-chart",
+  formula = "Linear interpolation of the series between calendar years. The y axis is the formatter on the ticks.",
 }: {
   years: number[];
   series: Series[];
@@ -34,8 +35,10 @@ export function LineChart({
   formatTick?: (value: number) => string;
   yDomain?: [number, number];
   downloadName?: string;
+  formula?: string;
 }) {
   const figureRef = useRef<HTMLElement>(null);
+  const [hover, setHover] = useState<number | null>(null);
   const width = 760;
   const height = 340;
   const pad = { l: 68, r: 14, t: 16, b: 36 };
@@ -103,7 +106,28 @@ export function LineChart({
             </text>
           ) : null,
         )}
+        {years.map((year, index) => (
+          <rect
+            key={`hit-${year}`}
+            x={x(index) - innerW / Math.max(1, years.length) / 2}
+            y={pad.t}
+            width={innerW / Math.max(1, years.length)}
+            height={innerH}
+            fill="transparent"
+            onMouseEnter={() => setHover(index)}
+            onMouseLeave={() => setHover(null)}
+          >
+            <title>
+              {year}: {series.map((item) => `${item.name} ${formatTick(item.values[index] ?? Number.NaN)}`).join("; ")}. {formula}
+            </title>
+          </rect>
+        ))}
       </svg>
+      {hover !== null ? (
+        <p className="chart-tip">
+          {years[hover]}: {series.map((item) => `${item.name} ${formatTick(item.values[hover] ?? Number.NaN)}`).join("; ")}. {formula}
+        </p>
+      ) : null}
       <figcaption className="legend">
         {bands.map((band, index) => (
           <span key={band.name ?? index}>
@@ -118,17 +142,25 @@ export function LineChart({
           </span>
         ))}
       </figcaption>
-      <ChartDownloads figureRef={figureRef} filename={downloadName} />
+      <ChartDownloads figureRef={figureRef} filename={downloadName} csv={chartCsv(years, series)} />
     </figure>
   );
+}
+
+function chartCsv(years: number[], series: { name: string; values: number[] }[]): string {
+  const header = ["year", ...series.map((item) => item.name)].join(",");
+  const rows = years.map((year, index) => [year, ...series.map((item) => item.values[index] ?? "")].join(","));
+  return [header, ...rows].join("\n");
 }
 
 function ChartDownloads({
   figureRef,
   filename,
+  csv,
 }: {
   figureRef: RefObject<HTMLElement | null>;
   filename: string;
+  csv?: string;
 }) {
   return (
     <div className="row-actions chart-downloads">
@@ -152,6 +184,11 @@ function ChartDownloads({
       >
         Download PNG
       </button>
+      {csv ? (
+        <button type="button" className="ghost" onClick={() => download(`${filename}.csv`, csv, "text/csv")}>
+          Download CSV
+        </button>
+      ) : null}
     </div>
   );
 }
@@ -166,6 +203,7 @@ export function StackedWeights({
   series: { name: string; color: string; values: number[] }[];
   ariaLabel: string;
 }) {
+  const figureRef = useRef<HTMLElement>(null);
   if (years.length === 0 || series.length === 0) return <p className="muted">Nothing to chart yet.</p>;
   const width = 760;
   const height = 220;
@@ -183,7 +221,7 @@ export function StackedWeights({
     for (let index = 0; index < running.length; index++) running[index] = next[index];
   }
   return (
-    <figure className="chart" id="glide-stack">
+    <figure className="chart" id="glide-stack" ref={figureRef}>
       <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={ariaLabel}>
         <line x1={pad.l} x2={width - pad.r} y1={y(0)} y2={y(0)} className="grid" />
         <line x1={pad.l} x2={width - pad.r} y1={y(1)} y2={y(1)} className="grid" />
@@ -206,6 +244,7 @@ export function StackedWeights({
           </span>
         ))}
       </figcaption>
+      <ChartDownloads figureRef={figureRef} filename="gao-glide-stack" csv={chartCsv(years, series)} />
     </figure>
   );
 }
@@ -269,7 +308,11 @@ export function Histogram({
         </text>
       </svg>
       <figcaption className="legend">Facility contribution across full-horizon draws, under the rule used in the range.</figcaption>
-      <ChartDownloads figureRef={figureRef} filename="gao-contribution-histogram" />
+      <ChartDownloads
+        figureRef={figureRef}
+        filename="gao-contribution-histogram"
+        csv={["lo,hi,count", ...bins.map((bin) => `${bin.lo},${bin.hi},${bin.count}`)].join("\n")}
+      />
     </figure>
   );
 }
@@ -327,7 +370,11 @@ export function RangeChart({
         })}
       </svg>
       <figcaption className="legend">Low to high facility contribution under each communication method. Not a recommendation.</figcaption>
-      <ChartDownloads figureRef={figureRef} filename="gao-contribution-ranges" />
+      <ChartDownloads
+        figureRef={figureRef}
+        filename="gao-contribution-ranges"
+        csv={["name,low,high", ...finite.map((row) => `${row.name},${row.low},${row.high}`)].join("\n")}
+      />
     </figure>
   );
 }

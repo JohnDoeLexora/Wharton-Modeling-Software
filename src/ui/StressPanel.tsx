@@ -5,6 +5,7 @@ import { STRESS_PRESETS, applyStress, type StressSpec } from "../core/stress";
 import { useStore } from "../state";
 import { SourceTip } from "./bits";
 import { compactUsd, pct } from "./format";
+import { ScenarioBoard } from "./v8panels";
 
 export function StressPanel() {
   const { assumptions } = useStore();
@@ -107,6 +108,7 @@ export function StressPanel() {
           </table>
         </div>
       </section>
+      <ScenarioBoard />
     </div>
   );
 }

@@ -403,14 +403,14 @@ describe("V7 review regressions", () => {
         { name: "trial", type: "int32", values: [0, 1, 2] },
         { name: "wealth_2033", type: "double", values: [10.5, 20.25, 30] },
       ],
-      { seed: "42", version: "7.0.0", data_as_of: DATA_AS_OF },
+      { seed: "42", version: "8.0.0", data_as_of: DATA_AS_OF },
     );
     const read = readTrialsParquet(bytes);
     expect(read.columns.map((column) => column.name)).toEqual(["trial", "wealth_2033"]);
     expect(read.columns[0].values).toEqual([0, 1, 2]);
     expect(read.columns[1].values[1]).toBeCloseTo(20.25, 10);
     expect(read.metadata.seed).toBe("42");
-    expect(read.metadata.version).toBe("7.0.0");
+    expect(read.metadata.version).toBe("8.0.0");
     expect(read.metadata.data_as_of).toBe(DATA_AS_OF);
 
     const assumptions = teachingAssumptions();
@@ -419,7 +419,7 @@ describe("V7 review regressions", () => {
     const csv = trialsCsv(output);
     expect(csv.split("\n")[0]).toContain("wealth_2033");
     expect(csv).toContain(String(output.masterSeed));
-    expect(csv).toContain("7.0.0");
+    expect(csv).toContain("8.0.0");
     expect(csv).toContain(DATA_AS_OF);
     expect(csv).toContain(TREASURY_SHA256);
     const table = readTrialsParquet(trialsParquetBytes(output));
@@ -437,7 +437,7 @@ describe("V7 review regressions", () => {
     expect(french).toBe(FRENCH_SHA256);
     const stamp = provenanceStamp(teachingAssumptions(), 42);
     expect(stamp.dataAsOf).toBe("2026-10-08");
-    expect(stamp.version).toBe("7.0.0");
+    expect(stamp.version).toBe("8.0.0");
     expect(stamp.teachingNote).toMatch(/teaching numbers/);
     expect(stamp.assumptionsHash).toHaveLength(64);
   });

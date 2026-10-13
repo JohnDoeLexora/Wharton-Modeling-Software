@@ -1,14 +1,61 @@
 import { useBook } from "../bookState";
 import { annotatedHtml } from "../core/annotated";
+import { buildBundle } from "../core/bundle";
 import { facilityCsv, notesCsv, projectionsCsv, reserveCsv, trialsCsv, trialsParquetBytes, workspaceJson } from "../core/exportData";
 import { assumptionsHash } from "../core/ledger";
 import { methodologyFootnote } from "../core/package";
+import { textPdf } from "../core/pdfText";
+import { tearSheetHtml } from "../core/tearSheet";
+import { workbookBytes } from "../core/xlsx";
 import { useStore } from "../state";
 import { DisclaimerLine, SourceTip } from "./bits";
 import { download, downloadBlob } from "./format";
 
 function parquetBlob(bytes: Uint8Array): ArrayBuffer {
   return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+}
+
+function toBuffer(bytes: Uint8Array): ArrayBuffer {
+  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+}
+
+function tearInput(
+  audience: "INTERNAL" | "EXTERNAL",
+  assumptions: ReturnType<typeof useStore>["assumptions"],
+  output: ReturnType<typeof useStore>["output"],
+  holdings: { ticker: string; weight: number; sleeve: string }[],
+) {
+  return {
+    audience,
+    title: "example book",
+    asOf: output.provenance?.dataAsOf ?? "",
+    holdings: holdings.map((row) => ({ name: row.ticker, weight: row.weight, kind: row.sleeve })),
+    riskLines: [
+      `Seed ${output.masterSeed}. Trials ${assumptions.trials}. Return model ${assumptions.returnModel}.`,
+      output.correlation.repaired ? "Correlation was repaired." : "Correlation was used as typed.",
+    ],
+    citations: [],
+    scenarios: [{ label: "Library", note: "Named scenarios live on the Stresses screen. They are not applied on this sheet." }],
+    reservePv: output.reserve.active.reserve,
+    giftP5: output.metrics?.facilityPercentiles["5"] ?? null,
+    giftP50: output.metrics?.facilityPercentiles["50"] ?? null,
+    giftP95: output.metrics?.facilityPercentiles["95"] ?? null,
+    methodology: [methodologyFootnote(assumptions, output, assumptionsHash(assumptions))],
+  };
+}
+
+function tearLines(
+  audience: string,
+  output: ReturnType<typeof useStore>["output"],
+  holdings: { ticker: string; weight: number }[],
+): string[] {
+  return [
+    `${audience} tear sheet. Exploratory output. Not an investment recommendation.`,
+    `Seed ${output.masterSeed}. Data as of ${output.provenance?.dataAsOf ?? "unknown"}.`,
+    ...holdings.map((row) => `${row.ticker} weight ${row.weight}`),
+    `P(funded) ${output.metrics?.fullyFundedProbability ?? "n/a"}`,
+    `p50 wealth ${output.metrics?.wealthPercentiles["50"] ?? "n/a"}`,
+  ];
 }
 
 export function ExportPanel() {
@@ -88,6 +135,43 @@ export function ExportPanel() {
             }
           >
             Annotated results
+          </button>
+          <button type="button" onClick={() => download("tear-sheet.html", tearSheetHtml(tearInput(audience, assumptions, output, holdings)), "text/html")}>
+            Tear sheet HTML
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              const lines = tearLines(audience, output, holdings);
+              downloadBlob("tear-sheet.pdf", new Blob([toBuffer(textPdf(`${audience} - tear sheet`, lines))], { type: "application/pdf" }));
+            }}
+          >
+            Tear sheet PDF
+          </button>
+          <button
+            type="button"
+            onClick={() => download("run-bundle.json", JSON.stringify(buildBundle(assumptions, output)), "application/json")}
+          >
+            Reproduce bundle
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              const bytes = workbookBytes([
+                {
+                  name: "Board",
+                  rows: [
+                    ["metric", "value"],
+                    ["seed", output.masterSeed],
+                    ["p50", output.metrics?.wealthPercentiles["50"] ?? ""],
+                    ["P(funded)", output.metrics?.fullyFundedProbability ?? ""],
+                  ],
+                },
+              ]);
+              downloadBlob("board.xlsx", new Blob([toBuffer(bytes)], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
+            }}
+          >
+            Board workbook
           </button>
         </div>
         <p className="muted">

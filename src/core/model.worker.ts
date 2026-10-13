@@ -9,7 +9,7 @@ export type WorkerRequest =
 
 export type WorkerResponse =
   | { kind: "model"; id: number; output: ModelOutput; slot?: string }
-  | { kind: "progress"; id: number; done: number; total: number; slot?: string }
+  | { kind: "progress"; id: number; done: number; total: number; p5?: number; p50?: number; p95?: number; slot?: string }
   | { kind: "sensitivity"; id: number; report: SensitivityReport }
   | { kind: "error"; id: number; message: string; slot?: string };
 
@@ -23,8 +23,17 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
       return;
     }
     const output = runModel(message.assumptions, {
-      onProgress: (done, total) => {
-        const progress: WorkerResponse = { kind: "progress", id: message.id, done, total, slot: message.slot };
+      onProgress: (done, total, snapshot) => {
+        const progress: WorkerResponse = {
+          kind: "progress",
+          id: message.id,
+          done,
+          total,
+          p5: snapshot?.p5,
+          p50: snapshot?.p50,
+          p95: snapshot?.p95,
+          slot: message.slot,
+        };
         self.postMessage(progress);
       },
     });

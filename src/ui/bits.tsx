@@ -73,6 +73,33 @@ export function SourceTip({ label, source }: { label: string; source: string }) 
   );
 }
 
+/** Metric label with the definition, the estimator, the window, and the standard error. */
+export function MetricInfo({
+  label,
+  definition,
+  estimator,
+  window,
+  se,
+}: {
+  label: string;
+  definition: string;
+  estimator: string;
+  window: string;
+  se: string;
+}) {
+  return (
+    <span className="metric-info">
+      {label}
+      <button type="button" className="info-dot" aria-label={`About ${label}`}>
+        i
+        <span className="info-pop" role="tooltip">
+          {definition} Estimator: {estimator} Window: {window} SE: {se}
+        </span>
+      </button>
+    </span>
+  );
+}
+
 export function DisclaimerLine() {
   const { output } = useStore();
   return <p className="disclaimer-line">{output.disclaimer}</p>;

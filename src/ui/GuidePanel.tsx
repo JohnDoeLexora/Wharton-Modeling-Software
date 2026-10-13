@@ -1,5 +1,6 @@
 import guide from "../../docs/HOW_TO_MODELING.md?raw";
 import { Markdown } from "./markdown";
+import { Glossary } from "./v8panels";
 
 export function GuidePanel() {
   return (
@@ -14,6 +15,7 @@ export function GuidePanel() {
       <section className="card prose-card">
         <Markdown source={guide} />
       </section>
+      <Glossary />
     </div>
   );
 }

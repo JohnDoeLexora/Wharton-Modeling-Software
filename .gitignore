@@ -11,3 +11,8 @@ services/finbert/.cache/
 *.tsbuildinfo
 .vite/
 out/
+coverage/
+test-results/
+playwright-report/
+.stryker-tmp/
+*.cpuprofile

@@ -2,7 +2,9 @@ import { useState } from "react";
 import { useBook } from "../bookState";
 import { assumptionsFromHoldings } from "../core/book";
 import { diffHoldings, standardErrorProbability } from "../core/holdings";
+import { pairedDifference, pairedFunded } from "../core/paired";
 import { runCached } from "../core/runCache";
+import type { Assumptions } from "../core/types";
 import { useStore } from "../state";
 import { compactUsd, pct } from "./format";
 
@@ -11,6 +13,7 @@ export function ComparePanel() {
   const { assumptions } = useStore();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
+  const [pinnedAssumptions, setPinnedAssumptions] = useState<Assumptions | null>(null);
   const [result, setResult] = useState<null | {
     leftFunded: number | null;
     rightFunded: number | null;
@@ -20,6 +23,10 @@ export function ComparePanel() {
     rightP50: number | null;
     se: number | null;
     trials: number;
+    wealthMean: number | null;
+    wealthSe: number | null;
+    fundedMean: number | null;
+    fundedSe: number | null;
   }>(null);
   const diff = diffHoldings(baseline, holdings);
   const changed = diff.filter((row) => row.kind !== "same");
@@ -34,7 +41,13 @@ export function ComparePanel() {
       </header>
       <section className="card">
         <div className="row-actions">
-          <button type="button" onClick={() => setBaseline(holdings.map((row) => ({ ...row })))}>
+          <button
+            type="button"
+            onClick={() => {
+              setBaseline(holdings.map((row) => ({ ...row })));
+              setPinnedAssumptions(structuredClone(assumptions));
+            }}
+          >
             Pin current holdings as baseline
           </button>
           <button
@@ -49,6 +62,13 @@ export function ComparePanel() {
                   const left = runCached(assumptionsFromHoldings({ ...assumptions, trials, mixes: [] }, baseline));
                   const right = runCached(assumptionsFromHoldings({ ...assumptions, trials, mixes: [] }, holdings));
                   const p = right.metrics?.fullyFundedProbability ?? 0;
+                  const wealth = pairedDifference(left.monteCarlo?.wealth2033 ?? [], right.monteCarlo?.wealth2033 ?? []);
+                  const funded = pairedFunded(
+                    left.monteCarlo?.wealth2033 ?? [],
+                    right.monteCarlo?.wealth2033 ?? [],
+                    left.monteCarlo?.reserve ?? [],
+                    right.monteCarlo?.reserve ?? [],
+                  );
                   setResult({
                     leftFunded: left.metrics?.fullyFundedProbability ?? null,
                     rightFunded: right.metrics?.fullyFundedProbability ?? null,
@@ -58,6 +78,10 @@ export function ComparePanel() {
                     rightP50: right.metrics?.wealthPercentiles["50"] ?? null,
                     se: standardErrorProbability(p, trials),
                     trials,
+                    wealthMean: wealth.mean,
+                    wealthSe: wealth.se,
+                    fundedMean: funded.mean,
+                    fundedSe: funded.se,
                   });
                 } catch (caught) {
                   setError(caught instanceof Error ? caught.message : "The comparison failed.");
@@ -94,7 +118,7 @@ export function ComparePanel() {
                 </tr>
               ) : (
                 diff.map((row) => (
-                  <tr key={`${row.kind}-${row.ticker}`}>
+                  <tr key={`${row.kind}-${row.ticker}`} className={row.kind === "same" ? undefined : "diff"}>
                     <td>{row.ticker}</td>
                     <td>{row.sleeve}</td>
                     <td>{row.kind}</td>
@@ -110,8 +134,10 @@ export function ComparePanel() {
           <div className="table-wrap">
             <table>
               <caption>
-                Paired sample, {result.trials} trials, same seed. SE of the current P(funded) is{" "}
-                {result.se === null ? "—" : pct(result.se, 2)}.
+                Paired sample, {result.trials} trials, same seed. Binomial SE of the current P(funded) is{" "}
+                {result.se === null ? "—" : pct(result.se, 2)}. Paired wealth difference {result.wealthMean === null ? "—" : compactUsd(result.wealthMean)}{" "}
+                (SE {result.wealthSe === null ? "—" : compactUsd(result.wealthSe)}). Paired funded-indicator difference{" "}
+                {result.fundedMean === null ? "—" : pct(result.fundedMean, 2)} (SE {result.fundedSe === null ? "—" : pct(result.fundedSe, 2)}).
               </caption>
               <thead>
                 <tr>
@@ -129,9 +155,40 @@ export function ComparePanel() {
             </table>
           </div>
         ) : (
-          <p className="muted">Score the two books to see P(funded), p5, and p50 with a standard error.</p>
+          <p className="muted">Score the two books to see P(funded), p5, and p50 with a paired-difference standard error.</p>
         )}
+        {pinnedAssumptions ? <AssumptionDiff before={pinnedAssumptions} after={assumptions} /> : null}
       </section>
+    </div>
+  );
+}
+
+function AssumptionDiff({ before, after }: { before: Assumptions; after: Assumptions }) {
+  const rows = [
+    ["Return model", before.returnModel, after.returnModel],
+    ["Shock model", before.shockModel, after.shockModel],
+    ["Trials", String(before.trials), String(after.trials)],
+    ["Seed", String(before.seed), String(after.seed)],
+    ["Rebalance", before.rebalance, after.rebalance],
+    ["Cost, bps", String(before.costs.transactionCostBps), String(after.costs.transactionCostBps)],
+    ["Reserve method", before.reserve.method, after.reserve.method],
+    ["Correlation stress", String(before.correlationStress), String(after.correlationStress)],
+  ].filter((row) => row[1] !== row[2]);
+  if (rows.length === 0) return <p className="muted">Assumptions match the pin on the fields this table watches.</p>;
+  return (
+    <div className="table-wrap">
+      <table>
+        <caption>Assumption differences since the pin. Highlighted rows changed.</caption>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row[0]} className="diff">
+              <td>{row[0]}</td>
+              <td>{row[1]}</td>
+              <td>{row[2]}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

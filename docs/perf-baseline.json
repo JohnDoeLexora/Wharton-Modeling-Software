@@ -1,0 +1,8 @@
+{
+  "budgetMs": 3000,
+  "ms": 1805,
+  "p50": 580913.4554481686,
+  "mixes": 5,
+  "errors": [],
+  "note": "Priced mode, five mixes, 20,000 trials, seed 42. The median is the regression lock. The budget is the wall clock of this process."
+}

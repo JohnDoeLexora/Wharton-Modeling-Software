@@ -1,7 +1,7 @@
 {
   "name": "gao-modeling-toolkit",
   "private": true,
-  "version": "7.0.0",
+  "version": "8.0.0",
   "type": "module",
   "description": "Exploration toolkit for the Wharton Investment Competition Laura Gao case. Not an investment recommendation.",
   "scripts": {
@@ -9,8 +9,17 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "test": "vitest run",
+    "lint": "tsc --noEmit",
+    "coverage": "vitest run --coverage",
     "parity": "sh bend/parity.sh",
-    "verify": "npm test && npm run build && bend bend/laws/LAWS.bend --verdict && bend bend/laws/FAN.bend --verdict && npm run parity",
+    "parity-full": "vite-node scripts/parity_full.ts",
+    "verify-stats": "vite-node scripts/verify-stats.ts",
+    "reproduce": "vite-node scripts/reproduce.ts",
+    "paper": "vite-node scripts/paper.ts",
+    "perf": "vite-node scripts/perf.ts",
+    "e2e": "playwright test",
+    "mutate": "stryker run",
+    "verify": "npm test && npm run build && npm run bend:laws && npm run parity && npm run parity-full && npm run verify-stats && npm run e2e",
     "bend:demo": "bend bend/main.bend",
     "bend:laws": "bend bend/laws/LAWS.bend --verdict && bend bend/laws/FAN.bend --verdict",
     "bend:check": "sh bend/check.sh",
@@ -22,9 +31,14 @@
     "react-dom": "^19.1.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.64.0",
+    "@stryker-mutator/core": "^8.7.1",
+    "@stryker-mutator/vitest-runner": "^8.7.1",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
     "@vitejs/plugin-react": "^4.5.2",
+    "@vitest/coverage-v8": "^3.2.7",
+    "fast-check": "^4.10.2",
     "typescript": "^5.8.3",
     "vite": "^6.3.5",
     "vitest": "^3.1.4"

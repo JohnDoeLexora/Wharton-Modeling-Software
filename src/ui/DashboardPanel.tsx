@@ -1,7 +1,7 @@
 import { useBook } from "../bookState";
 import { useStore } from "../state";
 import { compactUsd, pct } from "./format";
-import { SourceTip } from "./bits";
+import { MetricInfo } from "./bits";
 
 export function DashboardPanel() {
   const { output, pending, progress, fromCache, assumptions } = useStore();
@@ -97,7 +97,7 @@ function Tile({ label, value, source, delta: change }: { label: string; value: s
   return (
     <article>
       <h4>
-        <SourceTip label={label} source={source} />
+        <MetricInfo label={label} definition={source} estimator="The sample on screen." window="The trials on the assumptions form." se="Batch-means or binomial SE, shown on the metrics strip when the sample has one." />
       </h4>
       <p className="metric-value">{value}</p>
       {change ? <p className="muted">Δ {change}</p> : null}

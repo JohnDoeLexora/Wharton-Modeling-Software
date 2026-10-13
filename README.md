@@ -20,7 +20,9 @@ Open the URL Vite prints (usually `http://127.0.0.1:5173`).
 
 `npm run build` typechecks and writes a static bundle to `dist/`.
 
-`npm run verify` runs the tests, the production build, `bend bend/laws/LAWS.bend --verdict` and `bend bend/laws/FAN.bend --verdict` (each must print `ALL PROOFS CHECK`), and `npm run parity`. Parity compares Bend, the TypeScript engine, and the independent Python cross-check in `reference/python/`.
+`npm run verify` runs the tests, the production build, the Bend laws, `npm run parity`, `npm run parity-full`, `npm run verify-stats`, and a headless walkthrough of every screen. `parity-full` checks the TypeScript year step against `reference/python/kernel.py` on twenty golden books and five richer ones. The specification is `docs/MODEL_SPEC.md`. `npm run paper` rebuilds `docs/METHODS.pdf`.
+
+Version 8 keeps a single portfolio engine. Optional overlays stay off until a flag is set. Analytics, exploration frontiers, citations, and the scenario library are screens for inputs you type. They do not choose a book. `examples/INTERNAL - example-book.html` is an export of the example CSV, not a strategy. `npm run perf` times priced mode at five mixes and 20,000 trials and checks the stored median. On 2026-10-13 that run took 1,805 ms, under the 3 second budget. The version 7 note recorded 26,209 ms for its priced timing sample.
 
 The holdings, trades, compare, stress, and decision tabs are a workflow for a book you type. The editor starts empty. `examples/` holds CSV shapes labeled as examples. Nothing in the app is a recommended portfolio. Downloaded file names start with `EXTERNAL - ` or `INTERNAL - `.
 

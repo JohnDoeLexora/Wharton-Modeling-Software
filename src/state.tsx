@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState, type R
 import { teachingAssumptions, zeroAssumptions } from "./core/defaults";
 import { assumptionsHash, createLedgerEntry, type LedgerEntry } from "./core/ledger";
 import type { WorkerRequest, WorkerResponse } from "./core/model.worker";
-import { migrateStoredWorkspace } from "./core/migrate";
+import { migrateAssumptions, migrateStoredWorkspace } from "./core/migrate";
 import { cachedOutput, rememberRun, runCached } from "./core/runCache";
 import { runModel } from "./core/run";
 import type { SensitivityReport } from "./core/sensitivity";
@@ -19,8 +19,8 @@ interface Store {
   output: ModelOutput;
   /** True while a worker is replacing the sample. The previous output stays on screen. */
   pending: boolean;
-  /** Trials finished in the worker that is currently replacing the sample. */
-  progress: { done: number; total: number } | null;
+  /** Trials finished in the worker that is currently replacing the sample. Percentiles stream in every 50 trials. */
+  progress: { done: number; total: number; p5: number | null; p50: number | null; p95: number | null } | null;
   /** True when the sample on screen was reused for this assumption hash. */
   fromCache: boolean;
   /** True while a ledger row is waiting for a sample that matches its snapshot. */
@@ -35,6 +35,11 @@ interface Store {
   saveRun: (name: string) => void;
   removeRun: (id: string) => void;
   computeSensitivity: () => void;
+  undo: () => void;
+  redo: () => void;
+  canUndo: boolean;
+  canRedo: boolean;
+  cancelRun: () => void;
 }
 
 const Ctx = createContext<Store | null>(null);
@@ -53,8 +58,23 @@ function load(): { assumptions: Assumptions; notes: ResearchNote[]; ledger: Ledg
   return { assumptions: zeroAssumptions(), notes: [], ledger: [] };
 }
 
+function assumptionsFromUrl(): Assumptions | null {
+  if (typeof window === "undefined") return null;
+  const hash = window.location.hash;
+  if (!hash.startsWith("#run=")) return null;
+  try {
+    return migrateAssumptions(JSON.parse(decodeURIComponent(hash.slice(5))));
+  } catch {
+    return null;
+  }
+}
+
 export function StoreProvider({ children }: { children: ReactNode }) {
-  const [initial] = useState(load);
+  const [initial] = useState(() => {
+    const stored = load();
+    const fromUrl = assumptionsFromUrl();
+    return fromUrl ? { ...stored, assumptions: fromUrl } : stored;
+  });
   const [assumptions, setAssumptions] = useState<Assumptions>(initial.assumptions);
   const [notes, setNotes] = useState<ResearchNote[]>(initial.notes);
   const [ledger, setLedger] = useState<LedgerEntry[]>(initial.ledger);
@@ -64,7 +84,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     return first;
   });
   const [pending, setPending] = useState(false);
-  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  const [progress, setProgress] = useState<{ done: number; total: number; p5: number | null; p50: number | null; p95: number | null } | null>(null);
+  const [canUndo, setCanUndo] = useState(false);
+  const [canRedo, setCanRedo] = useState(false);
+  const past = useRef<Assumptions[]>([]);
+  const future = useRef<Assumptions[]>([]);
   const [fromCache, setFromCache] = useState(false);
   const [savePending, setSavePending] = useState(false);
   const [sensitivity, setSensitivity] = useState<SensitivityReport | null>(null);
@@ -98,7 +122,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       worker.onmessage = (event: MessageEvent<WorkerResponse>) => {
         const data = event.data;
         if (data.kind === "progress") {
-          if (data.id === modelRequest.current) setProgress({ done: data.done, total: data.total });
+          if (data.id === modelRequest.current) {
+            setProgress({
+              done: data.done,
+              total: data.total,
+              p5: data.p5 ?? null,
+              p50: data.p50 ?? null,
+              p95: data.p95 ?? null,
+            });
+          }
           return;
         }
         if (data.kind === "model") {
@@ -206,6 +238,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  function remember() {
+    past.current.push(structuredClone(assumptionsRef.current));
+    if (past.current.length > 40) past.current.shift();
+    future.current = [];
+    setCanUndo(true);
+    setCanRedo(false);
+  }
+
   const store = useMemo<Store>(
     () => ({
       assumptions,
@@ -218,11 +258,48 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       savePending,
       sensitivity,
       sensitivityPending,
-      update: (fn) => setAssumptions((prev) => ({ ...fn(prev), tag: "edited", schemaVersion: 3, schema: 3 })),
-      replace: (next) => setAssumptions(next),
+      canUndo,
+      canRedo,
+      update: (fn) => {
+        remember();
+        setAssumptions((prev) => ({ ...fn(prev), tag: "edited", schemaVersion: 3, schema: 3 }));
+      },
+      replace: (next) => {
+        remember();
+        setAssumptions(next);
+      },
       setNotes,
-      resetZeros: () => setAssumptions(zeroAssumptions()),
-      loadTeaching: () => setAssumptions(teachingAssumptions()),
+      resetZeros: () => {
+        remember();
+        setAssumptions(zeroAssumptions());
+      },
+      loadTeaching: () => {
+        remember();
+        setAssumptions(teachingAssumptions());
+      },
+      undo: () => {
+        const snapshot = past.current.pop();
+        if (!snapshot) return;
+        future.current.push(structuredClone(assumptionsRef.current));
+        setCanUndo(past.current.length > 0);
+        setCanRedo(true);
+        setAssumptions(snapshot);
+      },
+      redo: () => {
+        const snapshot = future.current.pop();
+        if (!snapshot) return;
+        past.current.push(structuredClone(assumptionsRef.current));
+        setCanUndo(true);
+        setCanRedo(future.current.length > 0);
+        setAssumptions(snapshot);
+      },
+      cancelRun: () => {
+        modelRequest.current += 1;
+        workerRef.current?.terminate();
+        workerRef.current = null;
+        setPending(false);
+        setProgress(null);
+      },
       saveRun: (name) => {
         const snapshot = structuredClone(assumptionsRef.current);
         const worker = ensureWorker();
@@ -254,7 +331,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         }
       },
     }),
-    [assumptions, notes, ledger, output, pending, progress, fromCache, savePending, sensitivity, sensitivityPending],
+    [assumptions, notes, ledger, output, pending, progress, fromCache, savePending, sensitivity, sensitivityPending, canUndo, canRedo],
   );
 
   return <Ctx.Provider value={store}>{children}</Ctx.Provider>;

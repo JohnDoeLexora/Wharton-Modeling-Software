@@ -27,5 +27,28 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["src/**/*.test.ts", "src/**/*.test.tsx"],
+    coverage: {
+      provider: "v8",
+      include: [
+        "src/core/yearStep.ts",
+        "src/core/kernel.ts",
+        "src/core/math.ts",
+        "src/core/verifyStats.ts",
+        "src/core/attribution.ts",
+        "src/core/ladder.ts",
+        "src/core/frontier.ts",
+        "src/core/scenarioLib.ts",
+        "src/core/bundle.ts",
+        "src/core/paired.ts",
+        "src/core/pdfText.ts",
+        "src/core/parityKernel.ts",
+      ],
+      thresholds: {
+        lines: 90,
+        statements: 90,
+        functions: 85,
+        branches: 75,
+      },
+    },
   },
 });
