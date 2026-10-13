@@ -11,4 +11,6 @@
 - The extracted curve and par-bond helpers return finite prices.
 - P(funded), p5, and p50 of a 200-trial parametric book agree with the TypeScript engine inside the stated bands. The TypeScript side writes `/tmp/gao-parity-ts.json`. Bend does not run that sample; its job is the deterministic goldens.
 
+`risk.py` repeats the integer risk identities and the float estimators (EWMA, OLS, Vasicek, the GARCH grid, Kupiec, Ledoit-Wolf) on the 80-point series that `scripts/parity.ts` writes to `/tmp/gao-risk-golden.json`. It does not import the app.
+
 This directory does not choose holdings.

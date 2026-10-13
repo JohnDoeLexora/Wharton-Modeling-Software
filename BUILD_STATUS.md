@@ -1,8 +1,22 @@
 # Build status
 
-Schema 3 of the TypeScript workspace is the interactive toolkit (`npm run dev`), now at app version 5.0.0. The Bend 2 package in `bend/` is the reference for the locked arithmetic. Neither engine contains a recommended portfolio, reserve, facility contribution, or co-sponsor range. The holdings editor starts empty.
+Schema 3 of the TypeScript workspace is the interactive toolkit (`npm run dev`), now at app version 6.0.0. The Bend 2 package in `bend/` is the reference for the locked arithmetic. Neither engine contains a recommended portfolio, reserve, facility contribution, or co-sponsor range. The holdings editor starts empty. The Risk tab starts empty until a history is imported.
 
-Checked on 2026-10-08.
+Checked on 2026-10-12.
+
+## What changed in V6
+
+- Daily adjusted-close history is cleaned for splits, stale prints, and weekday gaps, and each name gets a data-quality line (observations, missing days, IPO-short). Volatility is reported as EWMA (λ 0.94), variance-targeted GARCH(1,1), realized daily, weekly, monthly, and one-year, plus a mean-reverting horizon forecast. A name is flagged when those estimators differ by more than 1.5×.
+- Beta is daily, weekly, monthly, and one-year, each with a standard error. Non-synchronous names, including TSM, CHT, BUD, and PSO, use a Dimson lead and lag. Vasicek shrinkage uses a precision-weighted sector prior and is labeled “not measured.” Blume shrinkage toward 1 remains only as that legacy column.
+- Jumps are fit per name from gaps larger than 3 conditional standard deviations (2 on a marked event day): a compound Poisson intensity, empirical moments, and double-exponential up and down rates. The old etf, large, small, and moon classes are a flagged fallback. Student-t degrees of freedom are a per-name or per-sector grid MLE. Covariance is market, sector, Taiwan, and FX plus idiosyncratic variance, shrunk with Ledoit-Wolf and checked for positive semidefiniteness.
+- Equity ETFs with a benchmark get a tracking difference, a tracking error, and a fee drag from that gap. Bond ETFs stay on the holdings pricer. The portfolio screen reports ex-ante vol, marginal and component risk, idiosyncratic and jump shares, and each name’s worst historical gap. The backtest reports Kupiec and Christoffersen coverage at 95% and 99%, and a probability-integral transform, for the old monthly df=5 method and the new EWMA Student-t method.
+- `npm run risk-report` writes `out/risk-report.md` for the synthetic example book. `scripts/fetch_prices.py` is optional and is not part of verify. Bend laws lock four integer identities: EWMA variance positive (`ewma_var` 955000), Vasicek between the raw slope and the prior (`vasicek_beta` 628000), jump variance at least diffusion (`jump_var` 18000), and a shrunk covariance with positive determinant (`cov_det` 7729). Case cash flows are unchanged.
+
+## Verification on 2026-10-12
+
+- `npm run verify` exited 0. That is 101 Vitest tests, `npm run build`, `bend bend/laws/LAWS.bend --verdict` and `bend bend/laws/FAN.bend --verdict` each printing `ALL PROOFS CHECK`, and parity. Parity matched 67 deterministic keys, including the locked cash flows and the four risk identities. The 200-trial parametric sample agreed with the Python cross-check: P(funded) 0.72, p5 391938.17, p50 555189.44. The risk cross-check matched EWMA, OLS, Vasicek, the GARCH grid, Kupiec, and Ledoit-Wolf.
+- `npm run risk-report` on `examples/daily-prices-sample.csv` and `examples/risk-book.csv` exited 0. On that synthetic file, GAP’s one-year daily vol is 84.9% and its monthly vol is 39.2% (ratio 2.17). Its one-year daily beta is −0.41 (SE 0.54). The Vasicek figure on the preferred daily slope is 0.03 and is labeled not measured. Book ex-ante vol is 28.1%. The new coverage score wins on GAP, ADR, CALM, and ETF. The paired 200-trial case sample, same seed and the same locked cash flows, prints old P(funded) 0.335 and p5 wealth 172347, and new P(funded) 0.000 and p5 wealth 89735. Those are sample results for the example weights.
+- Headless Chrome on the production preview loaded the example history, opened the GAP card, read the divergence banner, the component-risk table, and the correlation heatmap, ran the old-versus-new comparison, and copied the estimates onto the basket. The trading note read `1-yr daily beta -0.41 (SE 0.54)`. Document `scrollWidth` matched `clientWidth` at 1280×900 (1265) and at 390×844 (390).
 
 ## What changed in V5
 

@@ -26,6 +26,8 @@ The holdings, trades, compare, stress, and decision tabs are a workflow for a bo
 
 The Curve tab fits a Nelson-Siegel curve to a file you import and rolls historical 7-year reserve windows. The Instruments tab prices a Treasury from its coupon schedule and a bond fund from maturity buckets. The Tracking tab imports WInS fills. Profit and loss there is labeled WInS P&L and is not an input. `scripts/fetch_treasury.py` downloads the public Treasury par yield curve into `data/` and writes `data/PROVENANCE.md`.
 
+The Risk tab estimates volatility, beta, jumps, and a Student-t from a daily adjusted-close file you import. It shows every estimator, labels a Vasicek or Blume beta as not measured, and flags a name whose estimators disagree by more than 1.5×. The portfolio screen reports ex-ante vol, component risk, and a historical-gap stress for a book you supply. The backtest reports Kupiec and Christoffersen coverage for the old monthly method and the new EWMA method. `npm run risk-report` writes that report for the synthetic example under `examples/`. `scripts/fetch_prices.py` is an optional download and is not part of `npm run verify`.
+
 ## Run the Bend engine
 
 The interactive workspace above is unchanged. `bend/` is a second engine, written in [Bend 2](https://bend2.dev) (the `bend` compiler, 2.0.x). It locks the same case arithmetic and checks it with `law` proofs. It does not replace `npm run dev`, and it does not load FinBERT.
@@ -55,7 +57,8 @@ The in-app **How to model** tab is the same text as [docs/HOW_TO_MODELING.md](do
 - Choose a sleeve’s pricing: parametric μ/σ, T-bills, intermediate Treasuries, long Treasuries, credit, a fat-tailed equity index, or a satellite basket. Bond and credit placeholders that appear when you switch pricing are labeled assumptions.
 - Pick a rate regime and a curve. Nelson-Siegel is the default. The three-point curve remains for a model-risk comparison. The regime button copies an illustration into the drift fields and leaves the short-rate level and the mean-reversion speed as you typed them. Quoted yields do not go below zero.
 - Fit an imported Treasury curve, price a bond from its cash flows, and read an immunization gap against the ten $50,000 payments.
-- Import WInS fills, see drift against the holdings book, and edit a Trading Note that stops at 300 characters. That P&L is labeled and stays out of the projection.
+- Import WInS fills, see drift against the holdings book, and edit a Trading Note that stops at 300 characters. That P&L is labeled and stays out of the projection. A note drafted from the Risk tab cites the measured beta, the estimator, and the window.
+- Import a daily price history and read EWMA, GARCH, realized vol, raw and Vasicek betas, fitted jumps, a correlation heatmap, and a VaR coverage backtest. Copy those estimates onto the satellite basket when you want the projection to use them.
 - Project beginning-of-year wealth from 2027 through 2042 on bear, base, and bull paths, plus percentiles of a seeded sample, including p1. One master seed feeds six named streams: portfolio, reserve, bootstrap, short rate, credit default, and single-name shocks. The 2031–2033 conditional band reuses the portfolio stream. Compared mixes reuse the same seed.
 - Read mark-to-market wealth next to hold-to-maturity wealth, so a rate rise shows up as a price term on a long bond and a small price term on a bill.
 - Compare four operating-reserve methods against the ten $50,000 payments, which stay visible as a schedule. A second table shows present-value, nominal $500,000, T-bill, and duration-matched sizes under each rate-regime template.

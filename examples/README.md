@@ -11,3 +11,5 @@ These CSVs are **examples of the file shape**. They are not a portfolio, not a m
 `govt-buckets.csv`, `bil-buckets.csv`, and `target-fund-buckets.csv` are maturity-bucket shapes for the Instruments tab. The weights and coupons are round. They are not a fund’s holdings.
 
 `fills.csv` is a fills shape for the Tracking tab, on the same made-up tickers. `equity-annual-sample.csv` is a tiny factor file so a backtest window can show an equity column. It is not the Ken French series. That series, when the download succeeds, is `data/french_ff_annual.csv`.
+
+`daily-prices-sample.csv` is a synthetic daily history for the Risk tab. The tickers (`GAP`, `ADR`, `CALM`, `ETF`, and the factor columns) are made up. `GAP` is constructed so the vol estimators disagree. `risk-book.csv` is an example weights file for that history. It is not a holding and it is not loaded at startup.
