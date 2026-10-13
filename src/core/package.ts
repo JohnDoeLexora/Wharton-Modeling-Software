@@ -4,7 +4,7 @@ import { caseLiabilitySchedule } from "./liability";
 import { TOLERANCE } from "./tolerance";
 import type { Assumptions, ModelOutput, ResearchNote } from "./types";
 import { APP_NAME, APP_VERSION, GIT_COMMIT } from "./version";
-import { facilityCsv, notesCsv, projectionsCsv, reserveCsv } from "./exportData";
+import { facilityCsv, notesCsv, projectionsCsv, reserveCsv, trialsCsv } from "./exportData";
 
 export interface RunPackage {
   packageVersion: 1;
@@ -16,7 +16,7 @@ export interface RunPackage {
   hashNote: string;
   winsTradingPnlIncluded: false;
   finbertInProjection: false;
-  taxesIncluded: false;
+  taxesIncluded: boolean;
   methodology: string;
   caseTimeline: typeof CASE_TIMELINE;
   liability: ReturnType<typeof caseLiabilitySchedule>;
@@ -44,8 +44,9 @@ export interface RunPackage {
     metrics: ModelOutput["metrics"];
     views: ModelOutput["views"];
     mixes: ModelOutput["mixes"];
+    provenance: ModelOutput["provenance"];
   };
-  csv: { projections: string; reserve: string; facility: string; notes: string };
+  csv: { projections: string; reserve: string; facility: string; notes: string; trials: string };
   researchNotes: ResearchNote[];
 }
 
@@ -70,7 +71,9 @@ export function methodologyFootnote(assumptions: Assumptions, output: ModelOutpu
     `Rate regime on the card: ${assumptions.rates.regime}. Short rate at 2027: ${assumptions.rates.r0}.`,
     `Curve model: ${assumptions.rates.curveModel}. Floor policy: zero-floor-on-quotes. A quoted yield does not go below zero.`,
     output.monteCarlo ? `Monte Carlo formula: ${output.monteCarlo.formula}` : "Monte Carlo did not run.",
-    `Correlation stress (added to off-diagonals): ${assumptions.correlationStress}. Repaired: ${output.correlation.repaired ? "yes" : "no"}. Ridged: ${output.correlation.ridged ? "yes" : "no"}.`,
+    `Correlation stress blends toward a sign-preserving target (±1 when the pair is positive or negative, 0 when the pair is 0) with weight ${assumptions.correlationStress}. The weight is cut back if the blend would not be positive semidefinite. Repair: ${assumptions.correlationRepair}. Applied repair: ${output.correlation.repaired ? "yes" : "no"}. Independent draws are not substituted.`,
+    `Sampling: ${assumptions.sampling}. Reserve discounting: ${assumptions.reserve.discountMode}. Data as of ${output.provenance?.dataAsOf ?? "unknown"}. Treasury sha256 ${output.provenance?.treasurySha256 ?? "unknown"}.`,
+    output.provenance?.teachingNote ?? "Teaching μ and σ, when the example book is loaded, are round numbers and not a capital-market assumption.",
     output.correlation.warning ? `Correlation warning: ${output.correlation.warning}` : "Correlation warning: none.",
     `Reserve method on the schedule: ${output.reserve.active.method}. ${output.reserve.active.message}`,
     output.facility?.primary
@@ -117,7 +120,7 @@ export function buildRunPackage(
     hashNote: "SHA-256 of the canonical JSON of assumptions. Key order is sorted. The hash does not cover results or the software commit.",
     winsTradingPnlIncluded: false,
     finbertInProjection: false,
-    taxesIncluded: false,
+    taxesIncluded: assumptions.costs.account === "taxable" && assumptions.costs.gainTaxRate > 0,
     methodology: methodologyFootnote(assumptions, output, hash),
     caseTimeline: CASE_TIMELINE,
     liability: caseLiabilitySchedule(),
@@ -143,12 +146,14 @@ export function buildRunPackage(
       metrics: output.metrics,
       views: output.views,
       mixes: output.mixes,
+      provenance: output.provenance,
     },
     csv: {
       projections: projectionsCsv(output),
       reserve: reserveCsv(output),
       facility: facilityCsv(output),
       notes: notesCsv(notes),
+      trials: trialsCsv(output),
     },
     researchNotes: notes,
   };

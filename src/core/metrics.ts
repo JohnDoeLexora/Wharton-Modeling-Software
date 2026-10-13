@@ -4,14 +4,21 @@ import type { RiskMetrics, SleeveKind, YearPoint } from "./types";
 /** Percentiles the spec asks for, whether or not they are on the chart list. */
 export const SPEC_PERCENTILES = [0.01, 0.05, 0.1, 0.5, 0.9, 0.95];
 
+/**
+ * Peak-to-trough drop of the unit NAV. The unit earns the time-weighted return,
+ * so a contribution cannot set a new peak or hide a loss.
+ */
 export function maxDrawdown(path: YearPoint[]): number {
-  let peak = 0;
+  let nav = 1;
+  let peak = 1;
   let worst = 0;
   for (const point of path) {
-    const wealth = point.wealthStart;
-    if (wealth > peak) peak = wealth;
+    const twr = point.twr;
+    if (twr !== null && Number.isFinite(twr)) nav *= 1 + twr;
+    if (!Number.isFinite(nav)) return Number.NaN;
+    if (nav > peak) peak = nav;
     if (peak > 0) {
-      const drawdown = (peak - wealth) / peak;
+      const drawdown = (peak - nav) / peak;
       if (drawdown > worst) worst = drawdown;
     }
   }
@@ -73,9 +80,30 @@ export function standardErrorProbability(p: number, n: number): number | null {
 }
 
 export const CONVERGENCE_NOTE =
-  "Standard error of the mean is the sample standard deviation of beginning-of-2033 wealth divided by sqrt(trials). " +
-  "Standard error of P(fully funded) is sqrt(p(1−p)/n). Raise the trial count to shrink them. " +
+  "Standard errors are batch means over contiguous trials, so a quantile reserve and the funded share move together. " +
+  "The mean's batch-means error should sit near the usual standard deviation divided by sqrt(trials). " +
   "These are sampling errors inside this seeded design, not a forecast interval.";
+
+/** Batch-means standard error. `stat` reads a half-open slice of the trial index. */
+export function batchMeansError(trials: number, stat: (start: number, end: number) => number, batches = 20): number {
+  if (!(trials >= 4) || batches < 2) return Number.NaN;
+  const count = Math.min(batches, Math.floor(trials / 2));
+  const size = Math.floor(trials / count);
+  if (size < 1) return Number.NaN;
+  const values: number[] = [];
+  for (let batch = 0; batch < count; batch++) {
+    const value = stat(batch * size, (batch + 1) * size);
+    if (Number.isFinite(value)) values.push(value);
+  }
+  if (values.length < 2) return Number.NaN;
+  const mean = values.reduce((total, value) => total + value, 0) / values.length;
+  let square = 0;
+  for (const value of values) {
+    const gap = value - mean;
+    square += gap * gap;
+  }
+  return Math.sqrt(square / (values.length - 1)) / Math.sqrt(values.length);
+}
 
 export function sharpeRatio(meanExcess: number, stdevExcess: number): number | null {
   if (!Number.isFinite(meanExcess) || !Number.isFinite(stdevExcess) || stdevExcess < 1e-12) return null;
@@ -100,11 +128,23 @@ export function emptyMetrics(): RiskMetrics {
     conditionalCoverage: null,
     sharpe: null,
     sortino: null,
+    sharpeNote: "No sample.",
+    fundedDefinition: "No sample.",
+    normalFloorBias: null,
+    normalFloorCorrected: false,
+    riskFree: "No sample.",
     convergence: {
       trials: 0,
       meanWealth2033: Number.NaN,
       standardErrorMean: Number.NaN,
       standardErrorFunded: null,
+      standardErrorCvar: null,
+      standardErrorP5: null,
+      standardErrorP50: null,
+      standardErrorP95: null,
+      standardErrorMaxDrawdown: null,
+      standardErrorSharpe: null,
+      standardErrorReserve: null,
       note: CONVERGENCE_NOTE,
     },
     sleeveMtm: [],

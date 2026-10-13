@@ -168,17 +168,27 @@ export function migrateAssumptions(raw: unknown): Assumptions {
     glide,
     correlation: Array.isArray(source.correlation) && source.correlation.length > 0 ? source.correlation : base.correlation,
     correlationStress: typeof source.correlationStress === "number" && Number.isFinite(source.correlationStress) ? source.correlationStress : 0,
+    correlationRepair: source.correlationRepair === "higham" ? "higham" : "none",
     rebalance: source.rebalance === "drift" ? "drift" : "annual",
     returnModel: source.returnModel === "normal" ? "normal" : "lognormal",
     shockModel,
     bootstrapHistory: history,
     blockLength,
+    bootstrapScheme: source.bootstrapScheme === "circular" ? "circular" : base.bootstrapScheme,
+    correctNormalFloor: source.correctNormalFloor === false ? false : base.correctNormalFloor,
+    sampling: source.sampling === "sobol" || source.sampling === "antithetic" ? source.sampling : base.sampling,
+    inflationSigma: finite(source.inflationSigma, 0),
+    inflationBeta: finite(source.inflationBeta, 0),
     normalFloor: typeof source.normalFloor === "number" && Number.isFinite(source.normalFloor) ? source.normalFloor : base.normalFloor,
     inflation: typeof source.inflation === "number" && Number.isFinite(source.inflation) ? source.inflation : 0,
     trials: typeof source.trials === "number" && Number.isFinite(source.trials) ? Math.round(source.trials) : base.trials,
     seed: typeof source.seed === "number" && Number.isFinite(source.seed) ? source.seed : base.seed,
     percentiles: Array.isArray(source.percentiles) && source.percentiles.length > 0 ? source.percentiles : base.percentiles,
-    reserve: { ...base.reserve, ...(source.reserve ?? {}) },
+    reserve: {
+      ...base.reserve,
+      ...(source.reserve ?? {}),
+      discountMode: source.reserve?.discountMode === "trial_curve" ? "trial_curve" : base.reserve.discountMode,
+    },
     facility: {
       ...base.facility,
       ...(source.facility ?? {}),
@@ -197,6 +207,14 @@ export function migrateAssumptions(raw: unknown): Assumptions {
         source.costs && typeof source.costs === "object" ? (source.costs as { transactionCostBps?: unknown }).transactionCostBps : undefined,
         0,
       ),
+      gainTaxRate: finite(
+        source.costs && typeof source.costs === "object" ? (source.costs as { gainTaxRate?: unknown }).gainTaxRate : undefined,
+        0,
+      ),
+      account:
+        source.costs && typeof source.costs === "object" && (source.costs as { account?: unknown }).account === "taxable"
+          ? "taxable"
+          : "untaxed",
     },
     mixes: Array.isArray(source.mixes) ? source.mixes.map(hydrateMix).filter((mix): mix is MixSpec => mix !== null) : [],
     schemaVersion: 3,

@@ -174,8 +174,30 @@ export function RateCard() {
           value={assumptions.costs.transactionCostBps}
           step="1"
           suffix="bp"
-          hint="Charged on annual rebalance after the first year. Zero leaves wealth unchanged."
-          onChange={(transactionCostBps) => update((a) => ({ ...a, costs: { transactionCostBps } }))}
+          hint="Round-trip charge on drifted weights, plus the same rate on new cash. Zero leaves wealth unchanged. The field accepts 0 to 500 basis points."
+          onChange={(transactionCostBps) => update((a) => ({ ...a, costs: { ...a.costs, transactionCostBps } }))}
+        />
+        <label className="field">
+          <span>Account</span>
+          <select
+            value={assumptions.costs.account}
+            onChange={(event) =>
+              update((a) => ({
+                ...a,
+                costs: { ...a.costs, account: event.target.value === "taxable" ? "taxable" : "untaxed" },
+              }))
+            }
+          >
+            <option value="untaxed">Untaxed</option>
+            <option value="taxable">Taxable</option>
+          </select>
+          <small>The gain tax applies only when the account is taxable and the portfolio return is positive.</small>
+        </label>
+        <PercentField
+          label="Gain tax rate"
+          value={assumptions.costs.gainTaxRate}
+          hint="Share of a positive annual portfolio return. Zero, or an untaxed account, leaves the return unchanged."
+          onChange={(gainTaxRate) => update((a) => ({ ...a, costs: { ...a.costs, gainTaxRate } }))}
         />
       </div>
       {path.length > 0 ? (

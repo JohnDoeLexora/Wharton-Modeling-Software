@@ -83,10 +83,28 @@ export function ReservePanel() {
       <section className="card">
         <h3>Inputs shared by the methods</h3>
         <div className="choice-grid">
+          <label className="field">
+            <span>How the sample prices the reserve</span>
+            <select
+              value={reserve.discountMode}
+              onChange={(event) =>
+                update((a) => ({
+                  ...a,
+                  reserve: { ...a.reserve, discountMode: event.target.value as typeof reserve.discountMode },
+                }))
+              }
+            >
+              <option value="trial_curve">Each trial's own 2033 curve</option>
+              <option value="fixed_yield">One fixed yield on every trial</option>
+            </select>
+            <small>
+              Trial curve: the hurdle is the present value of the ten payments on that trial's simulated curve. Fixed yield: one discount yield, labeled as such. The yield below still sizes the ladder illustration.
+            </small>
+          </label>
           <PercentField
-            label="Discount yield y"
+            label="Discount yield y (fixed-yield ladder)"
             value={reserve.discountYield}
-            hint="Ladder size, duration, and the present value used in the funded ratio."
+            hint="Sizes the flat-yield ladder and the duration method. It is not the hurdle when trial-curve mode is selected."
             onChange={(discountYield) => update((a) => ({ ...a, reserve: { ...a.reserve, discountYield } }))}
           />
           <PercentField

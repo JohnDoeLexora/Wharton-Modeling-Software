@@ -1,5 +1,8 @@
 import { buildRunPackage } from "./package";
+import { readTrialsParquet, trialsParquet, type TrialColumn } from "./parquet";
 import type { Assumptions, ModelOutput, ResearchNote } from "./types";
+
+export { readTrialsParquet };
 
 function cell(value: string | number | null | undefined): string {
   if (value === null || value === undefined) return "";
@@ -27,6 +30,11 @@ export function projectionsCsv(output: ModelOutput): string {
     "year_return_htm",
     "policy_weights",
     "actual_weights",
+    "seed",
+    "version",
+    "git_commit",
+    "data_as_of",
+    "treasury_sha256",
   ];
   const rows: (string | number | null)[][] = [header];
   for (const [name, path] of Object.entries(output.scenarios)) {
@@ -44,6 +52,11 @@ export function projectionsCsv(output: ModelOutput): string {
         point.yearReturnHtm,
         point.policyWeights.map((weight) => weight.toFixed(6)).join("|"),
         point.actualWeights.map((weight) => weight.toFixed(6)).join("|"),
+        output.provenance?.seed ?? "",
+        output.provenance?.version ?? "",
+        output.provenance?.gitCommit ?? "",
+        output.provenance?.dataAsOf ?? "",
+        output.provenance?.treasurySha256 ?? "",
       ]);
     }
   }
@@ -55,6 +68,78 @@ export function projectionsCsv(output: ModelOutput): string {
     }
   }
   return toCsv(rows);
+}
+
+/** One row per Monte Carlo trial. The first line is the header, including the provenance columns. */
+export function trialsCsv(output: ModelOutput): string {
+  const stamp = output.provenance;
+  const header = [
+    "trial",
+    "wealth_2031",
+    "wealth_2033",
+    "reserve",
+    "gift",
+    "funded",
+    "max_drawdown",
+    "seed",
+    "version",
+    "git_commit",
+    "data_as_of",
+    "treasury_sha256",
+    "assumptions_hash",
+  ];
+  const rows: (string | number | null)[][] = [header];
+  const sample = output.monteCarlo;
+  if (sample) {
+    for (let trial = 0; trial < sample.trials; trial++) {
+      const wealth = sample.wealth2033[trial];
+      const reserve = sample.reserve[trial];
+      rows.push([
+        trial,
+        sample.wealth2031[trial],
+        wealth,
+        reserve,
+        sample.gift[trial],
+        Number.isFinite(wealth) && Number.isFinite(reserve) && wealth + 1e-6 >= reserve ? 1 : 0,
+        sample.drawdown[trial],
+        stamp?.seed ?? sample.seed,
+        stamp?.version ?? "",
+        stamp?.gitCommit ?? "",
+        stamp?.dataAsOf ?? "",
+        stamp?.treasurySha256 ?? "",
+        stamp?.assumptionsHash ?? "",
+      ]);
+    }
+  }
+  return toCsv(rows);
+}
+
+export function trialsParquetBytes(output: ModelOutput): Uint8Array {
+  const sample = output.monteCarlo;
+  const trials = sample?.trials ?? 0;
+  const column = (name: string, type: TrialColumn["type"], values: number[]): TrialColumn => ({ name, type, values });
+  const funded = sample
+    ? sample.wealth2033.map((wealth, index) => (wealth + 1e-6 >= sample.reserve[index] ? 1 : 0))
+    : [];
+  return trialsParquet(
+    [
+      column("trial", "int32", Array.from({ length: trials }, (_, index) => index)),
+      column("wealth_2031", "double", sample?.wealth2031 ?? []),
+      column("wealth_2033", "double", sample?.wealth2033 ?? []),
+      column("reserve", "double", sample?.reserve ?? []),
+      column("gift", "double", sample?.gift ?? []),
+      column("funded", "int32", funded),
+      column("max_drawdown", "double", sample?.drawdown ?? []),
+    ],
+    {
+      seed: String(output.provenance?.seed ?? output.masterSeed),
+      version: output.provenance?.version ?? "",
+      git_commit: output.provenance?.gitCommit ?? "",
+      data_as_of: output.provenance?.dataAsOf ?? "",
+      treasury_sha256: output.provenance?.treasurySha256 ?? "",
+      assumptions_hash: output.provenance?.assumptionsHash ?? "",
+    },
+  );
 }
 
 export function reserveCsv(output: ModelOutput): string {

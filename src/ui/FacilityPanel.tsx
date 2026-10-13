@@ -293,8 +293,24 @@ export function FacilityPanel() {
             />
             <p className="formula">
               Scenario envelope: min and max across the scenarios you tick. Percentile bands: Hyndman–Fan type 7 on the
-              contribution sample. The conditional band reuses portfolio stream 1 at calendar years 2031 and 2032.
+              contribution sample. The conditional band reuses portfolio stream 1 at calendar years 2031 and 2032, and
+              it calls the same year step as the main path.
             </p>
+            {output.stateRange ? (
+              <div id="state-range">
+                <h3>2031 state-conditional coverage</h3>
+                <p className="muted">{output.stateRange.note}</p>
+                <p>
+                  Out-of-sample coverage{" "}
+                  {output.stateRange.coverage === null ? "—" : pct(output.stateRange.coverage, 1)}
+                  {output.stateRange.coverageSe === null ? "" : ` (standard error ${pct(output.stateRange.coverageSe, 1)})`}
+                  {output.stateRange.coverageLow !== null && output.stateRange.coverageHigh !== null
+                    ? `, interval ${pct(output.stateRange.coverageLow, 1)} to ${pct(output.stateRange.coverageHigh, 1)}`
+                    : ""}
+                  . Bins scored: {output.stateRange.bins.length}.
+                </p>
+              </div>
+            ) : null}
             <div className="range-grid">
               {facility.ranges.map((range) => (
                 <article key={range.method} className={range.method === assumptions.facility.rangeMethod ? "range on" : "range"}>

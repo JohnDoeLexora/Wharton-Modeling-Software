@@ -6,7 +6,7 @@ import { num, pct, usd } from "./format";
 
 export function Inspector() {
   const { assumptions, output } = useStore();
-  const report = prepareCorrelation(assumptions.correlation, assumptions.correlationStress);
+  const report = prepareCorrelation(assumptions.correlation, assumptions.correlationStress, assumptions.correlationRepair);
   const years: number[] = [];
   for (let year = FIRST_PROJECTION_YEAR; year <= LAST_PROJECTION_YEAR; year++) years.push(year);
 
@@ -79,8 +79,9 @@ export function Inspector() {
 
       <h4>Correlation actually used</h4>
       <p className="formula">
-        Stressed entry = clip(typed entry + stress, −0.999, 0.999) off the diagonal. If the minimum eigenvalue is below
-        −1e−8, negative eigenvalues are clipped and the diagonal is restored to 1.
+        Stress blends each off-diagonal toward +1 or −1 without flipping its sign. The blend stops early if a larger
+        weight would not be positive semidefinite. Higham repair runs only when you select it. Otherwise a matrix that
+        cannot be factored is an error, and sleeves are not drawn independently.
       </p>
       <p className="muted">
         Stress {num(assumptions.correlationStress, 3)}. Minimum eigenvalue of the typed matrix{" "}

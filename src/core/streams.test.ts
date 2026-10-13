@@ -123,9 +123,13 @@ describe("correlation stress and repair", () => {
     ];
     expect(cholesky(matrix)).toBeNull();
     expect(minEigenvalue(matrix)).toBeLessThan(0);
-    const report = prepareCorrelation(matrix, 0);
+    const refused = prepareCorrelation(matrix, 0);
+    expect(refused.repaired).toBe(false);
+    expect(refused.factor).toBeNull();
+    expect(refused.warning ?? "").toMatch(/Independent draws were not substituted/);
+    const report = prepareCorrelation(matrix, 0, "higham");
     expect(report.repaired).toBe(true);
-    expect(report.warning).toMatch(/repaired/i);
+    expect(report.warning).toMatch(/Higham/i);
     expect(report.factor).not.toBeNull();
     expect(report.used[0][0]).toBe(1);
     expect(minEigenvalue(report.used)).toBeGreaterThan(-1e-8);
@@ -138,14 +142,19 @@ describe("correlation stress and repair", () => {
     ];
     assumptions.glide = [{ year: 2027, weights: [1 / 3, 1 / 3, 1 / 3] }];
     assumptions.correlation = matrix;
+    assumptions.correlationRepair = "higham";
     assumptions.trials = 50;
     const output = runModel(assumptions);
     expect(output.errors).toEqual([]);
     expect(output.correlation.repaired).toBe(true);
     expect(output.monteCarlo!.wealth2033.every((value) => Number.isFinite(value))).toBe(true);
+    assumptions.correlationRepair = "none";
+    const blocked = runModel(assumptions);
+    expect(blocked.monteCarlo).toBeNull();
+    expect(blocked.errors.join(" ")).toMatch(/Independent draws were not substituted/);
   });
 
-  it("shifts off-diagonals by the stress and clips them", () => {
+  it("blends toward a stressed target and keeps the sign", () => {
     const report = prepareCorrelation(
       [
         [1, 0.8],
@@ -153,8 +162,19 @@ describe("correlation stress and repair", () => {
       ],
       0.5,
     );
-    expect(report.stressed[0][1]).toBeCloseTo(0.999, 8);
+    expect(report.stressed[0][1]).toBeCloseTo(0.9, 8);
     expect(report.stressed[1][1]).toBe(1);
+    expect(report.signPreserved).toBe(true);
+    const negative = prepareCorrelation(
+      [
+        [1, -0.3],
+        [-0.3, 1],
+      ],
+      0.3,
+    );
+    expect(negative.stressed[0][1]).toBeLessThan(0);
+    expect(negative.stressed[0][1]).toBeCloseTo(-0.51, 8);
+    expect(negative.factor).not.toBeNull();
   });
 });
 
@@ -204,7 +224,7 @@ describe("schema migration, ledger, and the run package", () => {
     const output = runModel(assumptions);
     const pack = buildRunPackage(assumptions, output, [], "2026-10-02T00:00:00.000Z");
     expect(pack.packageVersion).toBe(1);
-    expect(pack.software.version).toBe("6.0.0");
+    expect(pack.software.version).toBe("7.0.0");
     expect(pack.assumptionsHash).toHaveLength(64);
     expect(pack.winsTradingPnlIncluded).toBe(false);
     expect(pack.finbertInProjection).toBe(false);
@@ -299,6 +319,7 @@ describe("numerical hygiene", () => {
   it("resamples only the typed history in a block bootstrap", () => {
     const assumptions = singleSleeve(0.2, 0.3);
     assumptions.shockModel = "block_bootstrap";
+    assumptions.bootstrapScheme = "circular";
     assumptions.bootstrapHistory = [[0.1], [-0.05], [0.02]];
     assumptions.blockLength = 3;
     assumptions.trials = 50;
@@ -309,9 +330,20 @@ describe("numerical hygiene", () => {
       const contiguous = history.some((_, start) => block.every((value, index) => value === history[(start + index) % 3]));
       expect(contiguous).toBe(true);
     }
+    const rejected = runModel(assumptions);
+    expect(rejected.monteCarlo).toBeNull();
+    expect(rejected.errors.join(" ")).toMatch(/8 historical/);
+
+    assumptions.bootstrapHistory = [[0.1], [-0.05], [0.02], [0.04], [-0.01], [0.03], [0], [-0.02]];
+    assumptions.blockLength = 2;
+    assumptions.bootstrapScheme = "stationary";
     const output = runModel(assumptions);
     expect(output.errors).toEqual([]);
     expect(output.monteCarlo!.formula).toContain("stream 3");
+    const allowed = assumptions.bootstrapHistory.map((row) => row[0]);
+    for (let trial = 0; trial < 6; trial++) {
+      expect(allowed).toContain(mcSleeveReturns(assumptions, trial, 2030)[0]);
+    }
     expect(output.monteCarlo!.wealth2033.every((value) => Number.isFinite(value))).toBe(true);
   });
 });

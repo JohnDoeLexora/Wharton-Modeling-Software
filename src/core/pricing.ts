@@ -3,7 +3,8 @@ import { LAST_PROJECTION_YEAR } from "./case";
 import { equityKernel, sectorShockAt, singleNameReturn } from "./equity";
 import { correlatedShocks, normalizeSeed, simpleReturn } from "./math";
 import { ratePath, type EvolvedRate } from "./rates";
-import { STREAM, standardNormal, unitInterval } from "./rng";
+import { STREAM, unitInterval } from "./rng";
+import { portfolioNormals } from "./shocks";
 import type { Assumptions, BasketName, ScenarioName, Sleeve, SleeveKind } from "./types";
 
 export interface YearSlice {
@@ -122,9 +123,16 @@ function defaultLoss(args: {
  * Hold-to-maturity keeps the carry and the default loss and drops the price term.
  */
 function parametricDraws(assumptions: Assumptions, trial: number, year: number, factor: number[][] | null): number[] {
+  if (!factor) return assumptions.sleeves.map(() => Number.NaN);
   const seed = normalizeSeed(assumptions.seed);
-  const z = assumptions.sleeves.map((_, index) => standardNormal(seed, STREAM.portfolio, trial, year, index));
-  return factor ? correlatedShocks(factor, z) : z;
+  const z = portfolioNormals({
+    seed,
+    sampling: assumptions.sampling,
+    trial,
+    year,
+    sleeveCount: assumptions.sleeves.length,
+  });
+  return correlatedShocks(factor, z);
 }
 
 export function priceTrial(args: {
@@ -182,7 +190,14 @@ export function priceTrial(args: {
         mtmReturn =
           mode === "scenario"
             ? sleeve[args.scenario ?? "base"]
-            : simpleReturn(sleeve.mu, sleeve.sigma, draws[sleeveIndex] ?? 0, assumptions.returnModel, assumptions.normalFloor);
+            : simpleReturn(
+                sleeve.mu,
+                sleeve.sigma,
+                draws[sleeveIndex] ?? 0,
+                assumptions.returnModel,
+                assumptions.normalFloor,
+                assumptions.correctNormalFloor === true,
+              );
         htmReturn = mtmReturn;
       } else if (kind === "equity_index") {
         mtmReturn = market;
@@ -232,6 +247,30 @@ export function priceTrial(args: {
   }
 
   return { byYear, rates };
+}
+
+const priceCache = new WeakMap<Assumptions, Map<string, { byYear: Map<number, YearSlice>; rates: EvolvedRate[] }>>();
+
+/** One priced path per assumptions object, scenario, and trial. Mixes and the 2031 range reuse it. */
+export function cachedPriceTrial(args: {
+  assumptions: Assumptions;
+  mode: "mc" | "scenario";
+  scenario?: ScenarioName;
+  trial: number;
+  factor: number[][] | null;
+}): { byYear: Map<number, YearSlice>; rates: EvolvedRate[] } {
+  let bucket = priceCache.get(args.assumptions);
+  if (!bucket) {
+    bucket = new Map();
+    priceCache.set(args.assumptions, bucket);
+  }
+  const factorKey = args.factor ? args.factor.map((row) => row.join(",")).join(";") : "none";
+  const key = `${args.mode}|${args.scenario ?? ""}|${args.trial}|${factorKey}`;
+  const hit = bucket.get(key);
+  if (hit) return hit;
+  const table = priceTrial(args);
+  bucket.set(key, table);
+  return table;
 }
 
 export function flagText(sleeve: Sleeve): string | null {

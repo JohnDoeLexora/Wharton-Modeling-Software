@@ -36,9 +36,21 @@ export function boxMuller(uniform: () => number): () => number {
   };
 }
 
+/** Seeds are unsigned 32-bit integers. Values outside that set are rejected, not wrapped. */
+export const SEED_MODULUS = 2 ** 32;
+
+export function seedProblem(seed: number): string | null {
+  if (!Number.isFinite(seed)) return "The seed is not a finite number. It was not replaced with another seed.";
+  if (!Number.isInteger(seed)) return `Seed ${seed} is not an integer. It was not rounded.`;
+  if (seed < 0) return `Seed ${seed} is negative. It is not run as seed ${Math.abs(seed)}.`;
+  if (seed >= SEED_MODULUS) return `Seed ${seed} is outside 0 … ${SEED_MODULUS - 1}. It was not wrapped modulo 2^32.`;
+  return null;
+}
+
 export function normalizeSeed(seed: number): number {
-  if (!Number.isFinite(seed)) return 1;
-  return Math.abs(Math.floor(seed)) >>> 0;
+  const problem = seedProblem(seed);
+  if (problem) throw new Error(problem);
+  return seed;
 }
 
 /** Lower-triangular Cholesky factor. Returns null if the matrix is not positive semidefinite. */
@@ -53,8 +65,10 @@ export function cholesky(matrix: number[][]): number[][] | null {
         const diag = matrix[i][i] - sum;
         if (diag < -1e-8) return null;
         lower[i][j] = Math.sqrt(Math.max(0, diag));
+      } else if (lower[j][j] <= 1e-12) {
+        if (Math.abs(matrix[i][j] - sum) > 1e-6) return null;
+        lower[i][j] = 0;
       } else {
-        if (lower[j][j] <= 1e-12) return null;
         lower[i][j] = (matrix[i][j] - sum) / lower[j][j];
       }
     }
@@ -78,19 +92,84 @@ export function correlatedShocks(lower: number[][], z: number[]): number[] {
  * Lognormal is calibrated so E[1+r] = 1+mu and Var(1+r) = sigma^2.
  * The correlation across sleeves is applied to the normal shocks first (Gaussian copula).
  */
+/** Abramowitz and Stegun 7.1.26. Absolute error under about 1.5e-7. */
+export function erf(x: number): number {
+  const sign = x < 0 ? -1 : 1;
+  const a = Math.abs(x);
+  const p = 0.3275911;
+  const t = 1 / (1 + p * a);
+  const y =
+    1 -
+    (((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t) *
+      Math.exp(-a * a);
+  return sign * y;
+}
+
+export function normalCdf(x: number): number {
+  return 0.5 * (1 + erf(x / Math.SQRT2));
+}
+
+export function normalPdf(x: number): number {
+  return Math.exp(-0.5 * x * x) / Math.sqrt(2 * Math.PI);
+}
+
+/** E[max(floor, μ + σ Z)] for a standard normal Z. */
+export function censoredNormalMean(mu: number, sigma: number, floor: number): number {
+  if (!(sigma > 0)) return Math.max(floor, mu);
+  const a = (floor - mu) / sigma;
+  const cdf = normalCdf(a);
+  return floor * cdf + mu * (1 - cdf) + sigma * normalPdf(a);
+}
+
+/**
+ * The normal floor lifts the mean. `bias` is that lift at the typed μ.
+ * `location` is the center that puts the censored mean back on μ, when that is possible.
+ */
+export function normalFloorAdjustment(
+  mu: number,
+  sigma: number,
+  floor: number,
+): { location: number; bias: number; achievable: boolean } {
+  const biased = censoredNormalMean(mu, sigma, floor);
+  const bias = biased - mu;
+  if (!(sigma > 0) || Math.abs(bias) < 1e-14) return { location: mu, bias: 0, achievable: true };
+  if (mu < floor - 1e-12) return { location: floor, bias, achievable: false };
+  let lo = Math.min(mu, floor) - 12 * sigma;
+  let hi = mu;
+  for (let i = 0; i < 60; i++) {
+    const mid = (lo + hi) / 2;
+    if (censoredNormalMean(mid, sigma, floor) > mu) hi = mid;
+    else lo = mid;
+  }
+  return { location: (lo + hi) / 2, bias, achievable: true };
+}
+
+const locationCache = new Map<string, number>();
+
+export function correctedNormalLocation(mu: number, sigma: number, floor: number): number {
+  const key = `${mu}|${sigma}|${floor}`;
+  const hit = locationCache.get(key);
+  if (hit !== undefined) return hit;
+  const location = normalFloorAdjustment(mu, sigma, floor).location;
+  locationCache.set(key, location);
+  return location;
+}
+
 export function simpleReturn(
   mu: number,
   sigma: number,
   z: number,
   model: ReturnModel,
   floor: number,
+  correctFloor = false,
 ): number {
   if (!Number.isFinite(mu) || !Number.isFinite(sigma) || !Number.isFinite(z) || !Number.isFinite(floor)) {
     return Number.NaN;
   }
   const vol = sigma < 0 ? 0 : sigma;
   if (model === "normal") {
-    const linear = mu + vol * z;
+    const center = correctFloor ? correctedNormalLocation(mu, vol, floor) : mu;
+    const linear = center + vol * z;
     if (!Number.isFinite(linear)) return z >= 0 ? 1e6 : floor;
     return Math.max(floor, linear);
   }

@@ -1,20 +1,28 @@
 import { cholesky } from "./math";
 import { TOLERANCE } from "./tolerance";
 
+export type CorrelationRepair = "none" | "higham";
+
 export interface CorrelationReport {
   raw: number[][];
-  /** Off-diagonals shifted by `stress`, then clipped to [-0.999, 0.999]. Diagonal stays 1. */
+  /** Sign-preserving blend toward a stressed target. Diagonal stays 1. */
   stressed: number[][];
-  /** Matrix actually fed to Cholesky. Equals `stressed` when that matrix is PSD. */
+  /** Matrix actually fed to Cholesky. Equals `stressed` unless Higham repair was requested. */
   used: number[][];
   factor: number[][] | null;
+  /** Requested blend weight, clipped to [0, 1]. */
   stress: number;
+  /** Blend weight that was applied. Lower than `stress` only when a larger blend would not be PSD. */
+  appliedStress: number;
+  repair: CorrelationRepair;
   rawMinEigenvalue: number | null;
   usedMinEigenvalue: number | null;
   rawPsd: boolean;
   repaired: boolean;
-  /** Off-diagonals were shrunk slightly so a singular PSD matrix still had a factor. */
+  /** Always false. A failed factor is an error. Off-diagonals are not silently shrunk. */
   ridged: boolean;
+  /** Every off-diagonal kept the sign it had before the stress. */
+  signPreserved: boolean;
   warning: string | null;
 }
 
@@ -22,15 +30,77 @@ export function cloneMatrix(matrix: number[][]): number[][] {
   return matrix.map((row) => row.slice());
 }
 
-export function applyCorrelationStress(matrix: number[][], stress: number): number[][] {
-  const shift = Number.isFinite(stress) ? stress : 0;
-  if (shift === 0) return cloneMatrix(matrix);
+function blendToward(matrix: number[][], target: number[][], alpha: number): number[][] {
+  return matrix.map((row, i) => row.map((value, j) => (1 - alpha) * value + alpha * (target[i]?.[j] ?? value)));
+}
+
+function signTarget(matrix: number[][]): number[][] {
   return matrix.map((row, i) =>
     row.map((value, j) => {
       if (i === j) return 1;
-      return Math.min(0.999, Math.max(-0.999, value + shift));
+      if (value > 0) return 1;
+      if (value < 0) return -1;
+      return 0;
     }),
   );
+}
+
+function signsMatch(raw: number[][], stressed: number[][]): boolean {
+  return stressed.every((row, i) =>
+    row.every((value, j) => {
+      if (i === j) return Math.abs(value - 1) < 1e-8;
+      const original = raw[i]?.[j] ?? 0;
+      if (original === 0) return Math.abs(value) <= 1e-8;
+      return value === 0 ? false : Math.sign(value) === Math.sign(original);
+    }),
+  );
+}
+
+export interface StressedCorrelation {
+  stressed: number[][];
+  /** Requested weight after clipping to [0, 1]. */
+  stress: number;
+  applied: number;
+  signPreserved: boolean;
+}
+
+/**
+ * Blend ρ toward a target that pushes each pair toward ±1 without flipping its sign.
+ * If ρ is PSD, the blend weight is cut back until the result is still PSD.
+ * A negative pair stays negative. It is not shifted up through zero.
+ */
+export function applyCorrelationStress(matrix: number[][], stress: number): number[][] {
+  return stressCorrelation(matrix, stress).stressed;
+}
+
+export function stressCorrelation(matrix: number[][], stress: number): StressedCorrelation {
+  const requested = Number.isFinite(stress) ? Math.min(1, Math.max(0, stress)) : 0;
+  if (requested === 0 || matrix.length === 0) {
+    return { stressed: cloneMatrix(matrix), stress: requested, applied: 0, signPreserved: true };
+  }
+  const target = signTarget(matrix);
+  const psd = (candidate: number[][]) => minEigenvalue(candidate) >= -1e-9;
+  const full = blendToward(matrix, target, requested);
+  let stressed = full;
+  let applied = requested;
+  if (psd(matrix) && !psd(full)) {
+    let lo = 0;
+    let hi = requested;
+    stressed = cloneMatrix(matrix);
+    applied = 0;
+    for (let step = 0; step < 32; step++) {
+      const mid = (lo + hi) / 2;
+      const trial = blendToward(matrix, target, mid);
+      if (psd(trial)) {
+        lo = mid;
+        stressed = trial;
+        applied = mid;
+      } else {
+        hi = mid;
+      }
+    }
+  }
+  return { stressed, stress: requested, applied, signPreserved: signsMatch(matrix, stressed) };
 }
 
 function identity(n: number): number[][] {
@@ -122,70 +192,134 @@ export function repairCorrelation(matrix: number[][]): { matrix: number[][]; min
   return { matrix: corr, minEigenvalueBefore: before };
 }
 
-function shrinkOffDiagonal(matrix: number[][]): number[][] {
-  return matrix.map((row, i) => row.map((value, j) => (i === j ? 1 : value * 0.999)));
+function projectPsd(matrix: number[][]): number[][] {
+  const n = matrix.length;
+  const { values, vectors } = jacobiEigen(matrix);
+  const clipped = values.map((value) => Math.max(0, value));
+  const rebuilt = Array.from({ length: n }, () => Array(n).fill(0));
+  for (let i = 0; i < n; i++) {
+    for (let j = 0; j <= i; j++) {
+      let sum = 0;
+      for (let k = 0; k < n; k++) sum += vectors[i][k] * clipped[k] * vectors[j][k];
+      rebuilt[i][j] = sum;
+      rebuilt[j][i] = sum;
+    }
+  }
+  return rebuilt;
 }
 
 /**
- * Stress, PSD check, and repair. A factor of null means the run should stop;
- * ordinary non-PSD input is repaired and comes back with a warning instead.
+ * Higham's alternating projections (with Dykstra's correction) onto the
+ * nearest correlation matrix. Used only when the user selects this repair.
  */
-export function prepareCorrelation(matrix: number[][], stress: number): CorrelationReport {
+export function highamNearestCorrelation(matrix: number[][], maxIter = 48): number[][] {
+  const n = matrix.length;
+  if (n === 0) return [];
+  let current = matrix.map((row, i) => row.map((value, j) => (i === j ? 1 : (value + (matrix[j]?.[i] ?? value)) / 2)));
+  const correction = Array.from({ length: n }, () => Array(n).fill(0));
+  for (let iter = 0; iter < maxIter; iter++) {
+    const residual = current.map((row, i) => row.map((value, j) => value - correction[i][j]));
+    const psd = projectPsd(residual);
+    for (let i = 0; i < n; i++) {
+      for (let j = 0; j < n; j++) correction[i][j] = psd[i][j] - residual[i][j];
+    }
+    const next = psd.map((row, i) => row.map((value, j) => (i === j ? 1 : Math.max(-1, Math.min(1, value)))));
+    let diff = 0;
+    for (let i = 0; i < n; i++) {
+      for (let j = 0; j < n; j++) {
+        const gap = next[i][j] - current[i][j];
+        diff += gap * gap;
+      }
+    }
+    current = next;
+    if (diff < 1e-20) break;
+  }
+  if (minEigenvalue(current) < TOLERANCE.eigenvaluePsdFloor) return repairCorrelation(current).matrix;
+  return current;
+}
+
+function blankReport(matrix: number[][], stress: number, repair: CorrelationRepair, warning: string): CorrelationReport {
+  return {
+    raw: cloneMatrix(matrix),
+    stressed: cloneMatrix(matrix),
+    used: cloneMatrix(matrix),
+    factor: null,
+    stress,
+    appliedStress: 0,
+    repair,
+    rawMinEigenvalue: null,
+    usedMinEigenvalue: null,
+    rawPsd: false,
+    repaired: false,
+    ridged: false,
+    signPreserved: false,
+    warning,
+  };
+}
+
+/**
+ * Stress, then factor. A null factor is a hard error: sleeves are not drawn
+ * independently. Higham repair runs only when `repair` is `"higham"`.
+ */
+export function prepareCorrelation(
+  matrix: number[][],
+  stress: number,
+  repair: CorrelationRepair = "none",
+): CorrelationReport {
+  const requested = Number.isFinite(stress) ? stress : 0;
   if (!isSquare(matrix)) {
-    return {
-      raw: cloneMatrix(matrix),
-      stressed: cloneMatrix(matrix),
-      used: cloneMatrix(matrix),
-      factor: null,
-      stress: Number.isFinite(stress) ? stress : 0,
-      rawMinEigenvalue: null,
-      usedMinEigenvalue: null,
-      rawPsd: false,
-      repaired: false,
-      ridged: false,
-      warning: "The correlation matrix is not a square of finite numbers, so it was not factored.",
-    };
+    return blankReport(matrix, requested, repair, "The correlation matrix is not a square of finite numbers, so it was not factored. Sleeves were not drawn independently.");
   }
 
   const rawMin = minEigenvalue(matrix);
   const rawPsd = rawMin >= TOLERANCE.eigenvaluePsdFloor;
-  const stressed = applyCorrelationStress(matrix, stress);
-  const stressedMin = minEigenvalue(stressed);
-  const stressedPsd = stressedMin >= TOLERANCE.eigenvaluePsdFloor;
-
-  let used = stressed;
+  const stressed = stressCorrelation(matrix, requested);
+  let used = stressed.stressed;
   let repaired = false;
   let warning: string | null = null;
-  if (!stressedPsd) {
-    used = repairCorrelation(stressed).matrix;
-    repaired = true;
+  if (stressed.applied + 1e-12 < stressed.stress) {
     warning =
-      `The correlation matrix was not positive semidefinite after the stress shift ` +
-      `(minimum eigenvalue ${stressedMin.toExponential(3)}). Negative eigenvalues were clipped to zero ` +
-      `and the diagonal was restored to 1. Monte Carlo uses the repaired matrix.`;
+      `Correlation stress ${stressed.stress} was cut to ${stressed.applied.toFixed(4)} so the matrix stays positive semidefinite and keeps its signs.`;
+  }
+  const stressedMin = minEigenvalue(used);
+  if (repair === "higham") {
+    const nearest = highamNearestCorrelation(used);
+    const changed = nearest.some((row, i) => row.some((value, j) => Math.abs(value - (used[i]?.[j] ?? 0)) > 1e-8));
+    if (changed || stressedMin < TOLERANCE.eigenvaluePsdFloor) {
+      used = nearest;
+      repaired = true;
+      const note = "Higham's nearest correlation matrix was applied because that repair was selected. It was not a silent fallback.";
+      warning = warning ? `${warning} ${note}` : note;
+    }
+  } else if (stressedMin < TOLERANCE.eigenvaluePsdFloor) {
+    warning =
+      `The correlation matrix is not positive semidefinite (minimum eigenvalue ${stressedMin.toExponential(3)}). ` +
+      "It was not repaired and sleeves were not drawn independently. Select Higham repair or change the matrix.";
   }
 
-  let factor = cholesky(used);
-  let ridged = false;
-  if (!factor) {
-    used = shrinkOffDiagonal(used);
-    factor = cholesky(used);
-    ridged = true;
-    const extra = " Off-diagonal entries were multiplied by 0.999 so a factor could be built.";
-    warning = warning ? warning + extra : "The correlation factor needed a 0.999 shrink of the off-diagonals." + extra;
+  const factor = cholesky(used);
+  if (!factor && repair !== "higham") {
+    const note = "The correlation matrix could not be factored. Independent draws were not substituted.";
+    warning = warning ? `${warning} ${note}` : note;
+  } else if (!factor) {
+    const note = "Higham repair still did not produce a factor. The sample was not run on independent draws.";
+    warning = warning ? `${warning} ${note}` : note;
   }
 
   return {
     raw: cloneMatrix(matrix),
-    stressed,
+    stressed: stressed.stressed,
     used,
     factor,
-    stress: Number.isFinite(stress) ? stress : 0,
+    stress: stressed.stress,
+    appliedStress: stressed.applied,
+    repair,
     rawMinEigenvalue: rawMin,
     usedMinEigenvalue: factor ? minEigenvalue(used) : null,
     rawPsd,
     repaired,
-    ridged,
-    warning: factor ? warning : "The correlation matrix could not be factored after repair.",
+    ridged: false,
+    signPreserved: stressed.signPreserved,
+    warning: factor ? warning : warning,
   };
 }

@@ -1,5 +1,8 @@
 import { OPERATING_PAYMENT, OPERATING_PAYMENTS, OPERATING_FIRST_YEAR, yearIndex } from "./case";
-import { macaulayDuration, modifiedDuration, normalizeSeed, percentile, pvAnnuityDue, simpleReturn } from "./math";
+import { discountFactor } from "./nelson";
+import { macaulayDuration, modifiedDuration, normalizeSeed, percentile, pvAnnuityDue, seedProblem, simpleReturn } from "./math";
+import { batchMeansError } from "./metrics";
+import { yieldOnPath, type EvolvedRate } from "./rates";
 import { STREAM, standardNormal } from "./rng";
 import type { PathwiseFundedRatio, ReserveMethod, ReserveParams, ReserveSizing, ReserveYearRow, ReturnModel } from "./types";
 
@@ -97,20 +100,28 @@ export function sizeShortfallReserve(args: {
       macaulayDuration: null,
       modifiedDuration: null,
       pathwiseFundedRatio: null,
+      standardError: null,
       message: "Target is 0, so this method sets the reserve to $0. That does not fund the operating payments.",
     };
   }
 
-  const seed = normalizeSeed(args.seed);
-  const requirements: number[] = [];
-  for (let trial = 0; trial < args.trials; trial++) {
-    const rates: number[] = [];
-    for (let step = 0; step < steps; step++) {
-      const z = standardNormal(seed, STREAM.reserve, trial, step, 0);
-      rates.push(simpleReturn(args.mu, args.sigma, z, args.returnModel, args.normalFloor));
-    }
-    requirements.push(reserveToImmunize(rates, payment));
+  const problem = seedProblem(args.seed);
+  if (problem) {
+    return {
+      method: "shortfall",
+      reserve: null,
+      attainableProbability: null,
+      achievedProbability: null,
+      macaulayDuration: null,
+      modifiedDuration: null,
+      pathwiseFundedRatio: null,
+      standardError: null,
+      message: problem,
+    };
   }
+
+  const seed = normalizeSeed(args.seed);
+  const requirements = shortfallRequirementSample({ ...args, seed, payment, steps });
 
   const finite = requirements.filter((value) => Number.isFinite(value)).sort((a, b) => a - b);
   const attainable = finite.length / requirements.length;
@@ -123,6 +134,7 @@ export function sizeShortfallReserve(args: {
       macaulayDuration: null,
       modifiedDuration: null,
       pathwiseFundedRatio: null,
+      standardError: null,
       message:
         "In this sample, too many paths destroy the reserve (a return at or below -100%) before later payments. Lower the target or change the reserve return assumption. No finite reserve in the sample hits the target.",
     };
@@ -139,6 +151,9 @@ export function sizeShortfallReserve(args: {
     macaulayDuration: null,
     modifiedDuration: null,
     pathwiseFundedRatio: pathwiseRatio(requirements, reserve, args.percentiles),
+    standardError: batchMeansError(requirements.length, (start, end) =>
+      shortfallOrderStatistic(requirements.slice(start, end), target),
+    ),
     message:
       `Sized from the order statistic of path-by-path immunizing reserves on stream ${STREAM.reserve} (reserve), ` +
       `master seed ${seed}. Trial t lines up with portfolio trial t, but the shocks are not the portfolio shocks. ` +
@@ -198,6 +213,7 @@ function finiteOrNull(method: ReserveMethod, reserve: number, message: string, y
       macaulayDuration: null,
       modifiedDuration: null,
       pathwiseFundedRatio: null,
+      standardError: null,
       message: "The rate is at or below -100%, so later payments cannot be prefunded by investing the remainder. No finite reserve works.",
     };
   }
@@ -217,8 +233,54 @@ function finiteOrNull(method: ReserveMethod, reserve: number, message: string, y
     macaulayDuration: Number.isFinite(duration) ? duration : null,
     modifiedDuration: Number.isFinite(modified) ? modified : null,
     pathwiseFundedRatio: null,
+    standardError: null,
     message,
   };
+}
+
+/** Present value of the ten payments on one simulated curve. The 2033 payment is undiscounted. */
+export function reserveFromCurve(row: EvolvedRate | null, payment = OPERATING_PAYMENT, count = OPERATING_PAYMENTS): number {
+  if (!row) return Number.NaN;
+  let total = 0;
+  for (let k = 0; k < count; k++) {
+    const factor = k === 0 ? 1 : discountFactor(yieldOnPath(row, k), k);
+    total += payment * factor;
+  }
+  return total;
+}
+
+/** Immunizing reserve on each stream-2 path, in trial order. */
+export function shortfallRequirementSample(args: {
+  mu: number;
+  sigma: number;
+  trials: number;
+  seed: number;
+  returnModel: ReturnModel;
+  normalFloor: number;
+  payment?: number;
+  steps?: number;
+}): number[] {
+  const payment = args.payment ?? OPERATING_PAYMENT;
+  const steps = args.steps ?? OPERATING_PAYMENTS - 1;
+  const seed = normalizeSeed(args.seed);
+  const requirements: number[] = [];
+  for (let trial = 0; trial < args.trials; trial++) {
+    const rates: number[] = [];
+    for (let step = 0; step < steps; step++) {
+      const z = standardNormal(seed, STREAM.reserve, trial, step, 0);
+      rates.push(simpleReturn(args.mu, args.sigma, z, args.returnModel, args.normalFloor));
+    }
+    requirements.push(reserveToImmunize(rates, payment));
+  }
+  return requirements;
+}
+
+/** Order statistic used by the shortfall reserve. `target` is a fraction of the path count. */
+export function shortfallOrderStatistic(requirements: number[], target: number): number {
+  const finite = requirements.filter((value) => Number.isFinite(value)).sort((a, b) => a - b);
+  if (finite.length === 0) return Number.NaN;
+  const index = Math.min(finite.length - 1, Math.max(0, Math.ceil(target * requirements.length) - 1));
+  return finite[index];
 }
 
 export function sizeReserve(

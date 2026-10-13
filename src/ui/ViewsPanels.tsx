@@ -15,20 +15,36 @@ export function MetricsStrip() {
   }
   const p1 = metrics.wealthPercentiles["1"];
   const cards: { label: string; value: string; hint: string }[] = [
-    { label: "p1 wealth, 2033", value: usd(p1), hint: "First percentile of beginning-of-2033 wealth in this sample." },
+    {
+      label: "p1 wealth, 2033",
+      value: usd(p1),
+      hint: `First percentile of beginning-of-2033 wealth. SE of p5 ${usd(metrics.convergence.standardErrorP5)}, p50 ${usd(metrics.convergence.standardErrorP50)}, p95 ${usd(metrics.convergence.standardErrorP95)}.`,
+    },
     {
       label: "P(fully funded)",
       value: pct(metrics.fullyFundedProbability, 1),
-      hint: "Share of trials with 2033 wealth at least the reserve target.",
+      hint: `${metrics.fundedDefinition} Standard error ${metrics.convergence.standardErrorFunded === null ? "—" : metrics.convergence.standardErrorFunded.toFixed(4)}.`,
     },
-    { label: "CVaR 5%", value: usd(metrics.cvar5), hint: "Mean of the worst 5% of 2033 wealth figures." },
-    { label: "Mean max drawdown", value: pct(metrics.meanMaxDrawdown, 1), hint: "Average peak-to-trough drop of beginning-of-year wealth." },
-    { label: "Sharpe", value: metrics.sharpe === null ? "—" : metrics.sharpe.toFixed(2), hint: "Mean excess over the cash yield, divided by the sample standard deviation." },
-    { label: "Sortino", value: metrics.sortino === null ? "—" : metrics.sortino.toFixed(2), hint: "Mean excess divided by downside deviation." },
+    {
+      label: "CVaR 5%",
+      value: usd(metrics.cvar5),
+      hint: `Mean of the worst 5% of 2033 wealth figures. Standard error ${usd(metrics.convergence.standardErrorCvar)}.`,
+    },
+    {
+      label: "Mean max drawdown",
+      value: pct(metrics.meanMaxDrawdown, 1),
+      hint: `Average peak-to-trough drop of the unit NAV (time-weighted). Contributions do not set the peak. Standard error ${metrics.convergence.standardErrorMaxDrawdown === null ? "—" : metrics.convergence.standardErrorMaxDrawdown.toFixed(4)}.`,
+    },
+    {
+      label: "Sharpe",
+      value: metrics.sharpe === null ? "—" : metrics.sharpe.toFixed(2),
+      hint: `${metrics.sharpeNote} Standard error ${metrics.convergence.standardErrorSharpe === null ? "—" : metrics.convergence.standardErrorSharpe.toFixed(4)}.`,
+    },
+    { label: "Sortino", value: metrics.sortino === null ? "—" : metrics.sortino.toFixed(2), hint: "Mean excess divided by downside deviation, per trial, then averaged." },
     {
       label: "SE of the mean",
       value: usd(metrics.convergence.standardErrorMean),
-      hint: `${metrics.convergence.trials.toLocaleString("en-US")} trials. ${metrics.convergence.note}`,
+      hint: `${metrics.convergence.trials.toLocaleString("en-US")} trials. Reserve SE ${usd(metrics.convergence.standardErrorReserve)}. ${metrics.convergence.note}`,
     },
     {
       label: "2031 conditional band",
@@ -167,6 +183,8 @@ export function MixResultsTable() {
                 <th>P(funded)</th>
                 <th>CVaR 5%</th>
                 <th>Mean max drawdown</th>
+                <th>Paired mean difference</th>
+                <th>Paired SE</th>
                 <th>Note</th>
               </tr>
             </thead>
@@ -181,7 +199,9 @@ export function MixResultsTable() {
                   <td className="num">{pct(mix.fullyFundedProbability, 1)}</td>
                   <td className="num">{usd(mix.cvar5)}</td>
                   <td className="num">{pct(mix.meanMaxDrawdown, 1)}</td>
-                  <td>{mix.error ?? "—"}</td>
+                  <td className="num">{usd(mix.pairedMeanDiff)}</td>
+                  <td className="num">{usd(mix.pairedSe)}</td>
+                  <td>{mix.error ?? "Same trials as the workspace book."}</td>
                 </tr>
               ))}
             </tbody>

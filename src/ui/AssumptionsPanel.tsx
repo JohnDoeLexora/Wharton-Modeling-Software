@@ -309,18 +309,43 @@ export function AssumptionsPanel() {
             </select>
           </label>
           {assumptions.returnModel === "normal" ? (
-            <PercentField
-              label="Normal-model floor"
-              value={assumptions.normalFloor}
-              hint="Simple return is not allowed below this. Default is just above −100%."
-              onChange={(normalFloor) => update((a) => ({ ...a, normalFloor }))}
-            />
+            <>
+              <PercentField
+                label="Normal-model floor"
+                value={assumptions.normalFloor}
+                hint="Simple return is not allowed below this. The floor lifts the mean. That bias is reported."
+                onChange={(normalFloor) => update((a) => ({ ...a, normalFloor }))}
+              />
+              <label className="field">
+                <span>Floor mean</span>
+                <select
+                  value={assumptions.correctNormalFloor ? "yes" : "no"}
+                  onChange={(event) => update((a) => ({ ...a, correctNormalFloor: event.target.value === "yes" }))}
+                >
+                  <option value="yes">Shift the center so the censored mean equals μ</option>
+                  <option value="no">Leave the upward bias in the sample</option>
+                </select>
+              </label>
+            </>
           ) : null}
           <PercentField
             label="Inflation, for the purchasing-power view only"
             value={assumptions.inflation}
             hint="Does not change the $50,000 payments. They stay nominal."
             onChange={(inflation) => update((a) => ({ ...a, inflation }))}
+          />
+          <PercentField
+            label="Inflation volatility"
+            value={assumptions.inflationSigma}
+            hint="Zero keeps inflation constant. A positive value draws a shock on the rate stream and does not change nominal wealth."
+            onChange={(inflationSigma) => update((a) => ({ ...a, inflationSigma }))}
+          />
+          <NumberField
+            label="Inflation beta on the short-rate shock"
+            value={assumptions.inflationBeta}
+            step="0.01"
+            hint="Percentage points of inflation per unit of short-rate shock. Zero leaves inflation unlinked."
+            onChange={(inflationBeta) => update((a) => ({ ...a, inflationBeta }))}
           />
           <NumberField
             label="Monte Carlo trials"
@@ -333,16 +358,41 @@ export function AssumptionsPanel() {
             label="Random seed"
             value={assumptions.seed}
             step="1"
-            hint="Master seed. Streams 1–3 are portfolio, reserve, and bootstrap. Stream 4 is the short rate, stream 5 is credit default, stream 6 is single-name shocks. Quote it with the run package."
-            onChange={(seed) => update((a) => ({ ...a, seed: Math.round(seed) }))}
+            hint="Whole number from 0 to 2^32−1. A fractional or negative seed is rejected. It is not rounded and it is not wrapped."
+            onChange={(seed) => update((a) => ({ ...a, seed }))}
           />
           <NumberField
             label="Correlation stress"
             value={assumptions.correlationStress}
             step="0.05"
-            hint="Added to every off-diagonal, then clipped to ±0.999. Zero leaves the typed matrix unchanged."
+            hint="Blend weight from 0 to 1 toward a sign-preserving target. Positive pairs move toward +1 and negative pairs stay negative. Zero leaves the typed matrix unchanged."
             onChange={(correlationStress) => update((a) => ({ ...a, correlationStress }))}
           />
+          <label className="field">
+            <span>Correlation repair</span>
+            <select
+              value={assumptions.correlationRepair}
+              onChange={(event) =>
+                update((a) => ({ ...a, correlationRepair: event.target.value as Assumptions["correlationRepair"] }))
+              }
+            >
+              <option value="none">Refuse a matrix that cannot be factored</option>
+              <option value="higham">Nearest correlation (Higham), and say so</option>
+            </select>
+            <small>There is no silent fallback to independent draws.</small>
+          </label>
+          <label className="field">
+            <span>Sampler</span>
+            <select
+              value={assumptions.sampling}
+              onChange={(event) => update((a) => ({ ...a, sampling: event.target.value as Assumptions["sampling"] }))}
+            >
+              <option value="pseudo">Pseudo-random (SplitMix64)</option>
+              <option value="antithetic">Antithetic pairs</option>
+              <option value="sobol">Sobol with a Brownian bridge</option>
+            </select>
+            <small>The default is pseudo-random. Sobol and antithetic are optional. The comparison is reported with the sample.</small>
+          </label>
           <label className="field">
             <span>Shock model</span>
             <select
@@ -350,17 +400,29 @@ export function AssumptionsPanel() {
               onChange={(event) => update((a) => ({ ...a, shockModel: event.target.value as ShockModel }))}
             >
               <option value="parametric">Parametric: μ, σ, and the Gaussian copula</option>
-              <option value="block_bootstrap">Circular block bootstrap of rows you type</option>
+              <option value="block_bootstrap">Block bootstrap of rows you type</option>
             </select>
-            <small>Bootstrap ignores μ, σ, and the copula on the Monte Carlo paths. Scenario paths still use bear, base, and bull.</small>
+            <small>Bootstrap ignores μ, σ, and the copula on the Monte Carlo paths. Scenario paths still use bear, base, and bull. At least 8 rows are required.</small>
           </label>
           {assumptions.shockModel === "block_bootstrap" ? (
             <>
+              <label className="field">
+                <span>Bootstrap scheme</span>
+                <select
+                  value={assumptions.bootstrapScheme}
+                  onChange={(event) =>
+                    update((a) => ({ ...a, bootstrapScheme: event.target.value as Assumptions["bootstrapScheme"] }))
+                  }
+                >
+                  <option value="stationary">Stationary (geometric blocks)</option>
+                  <option value="circular">Circular (fixed blocks)</option>
+                </select>
+              </label>
               <NumberField
                 label="Block length"
                 value={assumptions.blockLength}
                 step="1"
-                hint="1 resamples single rows. Longer blocks keep consecutive rows together, wrapping around the list."
+                hint="Mean geometric length, or the fixed circular length. 1 resamples single rows."
                 onChange={(blockLength) => update((a) => ({ ...a, blockLength: Math.round(blockLength) }))}
               />
               <BootstrapEditor />

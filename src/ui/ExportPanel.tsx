@@ -1,11 +1,15 @@
 import { useBook } from "../bookState";
 import { annotatedHtml } from "../core/annotated";
-import { facilityCsv, notesCsv, projectionsCsv, reserveCsv, workspaceJson } from "../core/exportData";
+import { facilityCsv, notesCsv, projectionsCsv, reserveCsv, trialsCsv, trialsParquetBytes, workspaceJson } from "../core/exportData";
 import { assumptionsHash } from "../core/ledger";
 import { methodologyFootnote } from "../core/package";
 import { useStore } from "../state";
 import { DisclaimerLine, SourceTip } from "./bits";
-import { download } from "./format";
+import { download, downloadBlob } from "./format";
+
+function parquetBlob(bytes: Uint8Array): ArrayBuffer {
+  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+}
 
 export function ExportPanel() {
   const { assumptions, output, notes } = useStore();
@@ -43,6 +47,17 @@ export function ExportPanel() {
         <div className="row-actions">
           <button type="button" onClick={() => download(`gao-projections-${stamp}.csv`, projectionsCsv(output), "text/csv")}>
             Projections CSV
+          </button>
+          <button type="button" onClick={() => download(`gao-trials-${stamp}.csv`, trialsCsv(output), "text/csv")}>
+            Per-trial CSV
+          </button>
+          <button
+            type="button"
+            onClick={() =>
+              downloadBlob(`gao-trials-${stamp}.parquet`, new Blob([parquetBlob(trialsParquetBytes(output))], { type: "application/vnd.apache.parquet" }))
+            }
+          >
+            Per-trial Parquet
           </button>
           <button type="button" onClick={() => download(`gao-reserve-${stamp}.csv`, reserveCsv(output), "text/csv")}>
             Reserve CSV

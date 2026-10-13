@@ -1,7 +1,7 @@
 {
   "name": "gao-modeling-toolkit",
   "private": true,
-  "version": "6.0.0",
+  "version": "7.0.0",
   "type": "module",
   "description": "Exploration toolkit for the Wharton Investment Competition Laura Gao case. Not an investment recommendation.",
   "scripts": {

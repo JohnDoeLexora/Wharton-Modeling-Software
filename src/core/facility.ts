@@ -139,10 +139,18 @@ export function contributionsOf(wealth: number[], reserve: number, rule: Candida
   contributions: number[];
   fundedFlags: boolean[];
 } {
+  return contributionsPathwise(wealth, wealth.map(() => reserve), rule);
+}
+
+/** Each trial can carry its own reserve. A fixed yield passes the same number every time. */
+export function contributionsPathwise(wealth: number[], reserves: number[], rule: CandidateRule): {
+  contributions: number[];
+  fundedFlags: boolean[];
+} {
   const contributions: number[] = [];
   const fundedFlags: boolean[] = [];
-  for (const value of wealth) {
-    const applied = applyRule(value, reserve, rule);
+  for (let index = 0; index < wealth.length; index++) {
+    const applied = applyRule(wealth[index], reserves[index] ?? Number.NaN, rule);
     contributions.push(applied.contribution);
     fundedFlags.push(applied.operatingFullyFunded);
   }

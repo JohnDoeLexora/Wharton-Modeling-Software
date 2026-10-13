@@ -3,7 +3,7 @@
  * Nothing in these types is a recommended strategy.
  */
 
-import type { CorrelationReport } from "./correlation";
+import type { CorrelationRepair, CorrelationReport } from "./correlation";
 import type { StreamManifest } from "./rng";
 
 export type ScenarioName = "base" | "bull" | "bear";
@@ -12,6 +12,15 @@ export type ReturnModel = "lognormal" | "normal";
 
 /** Parametric Gaussian-copula shocks, or a circular block resample of rows the team types. */
 export type ShockModel = "parametric" | "block_bootstrap";
+
+/** Circular blocks keep a fixed length. Stationary blocks draw a geometric length (Politis–Romano). */
+export type BootstrapScheme = "circular" | "stationary";
+
+/** Pseudo-random streams, antithetic pairs on stream 1, or Sobol with a Brownian bridge. */
+export type SamplingMethod = "pseudo" | "antithetic" | "sobol";
+
+/** `untaxed` charges no gain tax. `taxable` applies `gainTaxRate` to a positive portfolio return. */
+export type AccountTax = "untaxed" | "taxable";
 
 export type RebalanceMode = "annual" | "drift";
 
@@ -155,6 +164,9 @@ export interface EquityParams {
 export interface CostParams {
   /** Round-trip turnover charge in basis points. Zero leaves wealth unchanged. */
   transactionCostBps: number;
+  /** Tax on a positive annual portfolio return when `account` is taxable. */
+  gainTaxRate: number;
+  account: AccountTax;
 }
 
 export interface BasketName {
@@ -209,8 +221,19 @@ export interface CandidateRule {
   capDollars: number;
 }
 
+/**
+ * `fixed_yield` prices the reserve at `discountYield` and uses that one number on every trial.
+ * `trial_curve` prices the ten payments on each trial's own 2033 curve. The discount yield is then only the fixed-yield illustration.
+ */
+export type ReserveDiscount = "fixed_yield" | "trial_curve";
+
 export interface ReserveParams {
   method: ReserveMethod;
+  /**
+   * Fixed yield: one discount yield for every trial. The simulated 2033 curve does not move the reserve.
+   * Trial curve: each trial has its own present value.
+   */
+  discountMode: ReserveDiscount;
   /** Flat annual yield for the ladder, the liability discount rate, and duration. */
   discountYield: number;
   /** Duration method only. Reserve = present value × (1 + surplusMargin). */
@@ -253,10 +276,18 @@ export interface Assumptions {
   /** Row-major correlation of Monte Carlo shocks. Gaussian copula. Ignored by block bootstrap. */
   correlation: number[][];
   /**
-   * Added to every off-diagonal correlation, then clipped to ±0.999.
-   * Zero leaves the typed matrix unchanged. A non-PSD result is repaired and flagged.
+   * Blend weight in [0, 1] toward a sign-preserving stressed target.
+   * Positive pairs move toward +1 and negative pairs move toward −1.
+   * The weight is cut back if a larger blend would not be positive semidefinite.
+   * Zero leaves the typed matrix unchanged.
    */
   correlationStress: number;
+  /**
+   * `none` refuses a matrix that cannot be factored.
+   * `higham` replaces it with the nearest correlation matrix and says so.
+   * There is no silent fallback to independent draws.
+   */
+  correlationRepair: CorrelationRepair;
   rebalance: RebalanceMode;
   returnModel: ReturnModel;
   shockModel: ShockModel;
@@ -265,12 +296,23 @@ export interface Assumptions {
    * Used only when shockModel is block_bootstrap. Empty under the parametric model.
    */
   bootstrapHistory: number[][];
-  /** Circular block length in rows. 1 resamples single periods. */
+  /** Circular block length, or the mean geometric length of the stationary bootstrap. */
   blockLength: number;
+  bootstrapScheme: BootstrapScheme;
   /** Floor on simple returns when returnModel is "normal". */
   normalFloor: number;
+  /**
+   * When true, the normal floor is still applied, but the center is shifted so the censored mean equals μ.
+   * The size of the uncorrected bias is reported either way.
+   */
+  correctNormalFloor: boolean;
+  sampling: SamplingMethod;
   /** Optional purchasing-power deflator. Does not change the nominal $50,000 liability. */
   inflation: number;
+  /** Annual volatility of inflation around `inflation`, drawn with the rate shock. Zero keeps inflation constant. */
+  inflationSigma: number;
+  /** How many percentage points of inflation per unit of short-rate shock. */
+  inflationBeta: number;
   trials: number;
   seed: number;
   percentiles: number[];
@@ -304,6 +346,16 @@ export interface YearPoint {
   actualWeights: number[];
   /** Portfolio return earned during this calendar year. Null in 2042. Mark-to-market when bonds are priced. */
   yearReturn: number | null;
+  /** Time-weighted return, including rebalance cost and excluding the contribution. Null only when nothing happened. */
+  twr: number | null;
+  /** Unit NAV after this year's time-weighted return. Contributions do not move it. */
+  nav: number;
+  /** Weights before this year's rebalance. */
+  driftedWeights: number[];
+  rebalanceCostFraction: number;
+  contributionCost: number;
+  /** Inflation used to deflate this row. Stochastic when inflation volatility is positive. */
+  inflationRate: number;
   sleeveReturns: number[] | null;
   /** Beginning-of-year wealth if bond sleeves had earned carry only (hold to maturity). */
   wealthStartHtm: number;
@@ -356,6 +408,8 @@ export interface ReserveSizing {
   macaulayDuration: number | null;
   modifiedDuration: number | null;
   message: string;
+  /** Batch-means standard error of an estimated reserve. Null when the reserve is a closed form. */
+  standardError: number | null;
   /** Present only for the shortfall method, which is the method with a sample of paths. */
   pathwiseFundedRatio: PathwiseFundedRatio | null;
 }
@@ -485,15 +539,92 @@ export interface RiskMetrics {
   conditionalCoverage: number | null;
   sharpe: number | null;
   sortino: number | null;
+  /** What the Sharpe is, including the risk-free rate that was subtracted. */
+  sharpeNote: string;
+  /** Plain-language definition of fullyFundedProbability for this run. */
+  fundedDefinition: string;
+  /** E[max(floor, μ+σZ)] − μ on the first sleeve, before any mean correction. Null when the model is not normal. */
+  normalFloorBias: number | null;
+  normalFloorCorrected: boolean;
+  riskFree: string;
   convergence: {
     trials: number;
     meanWealth2033: number;
     standardErrorMean: number;
     standardErrorFunded: number | null;
+    standardErrorCvar: number | null;
+    standardErrorP5: number | null;
+    standardErrorP50: number | null;
+    standardErrorP95: number | null;
+    standardErrorMaxDrawdown: number | null;
+    standardErrorSharpe: number | null;
+    standardErrorReserve: number | null;
     note: string;
   };
   /** Average unfloored price term across trials and years. Near zero when duration is near zero. */
   sleeveMtm: { id: string; name: string; kind: SleeveKind; meanPrice: number }[];
+}
+
+export interface MarketState2031 {
+  trial: number;
+  wealth: number;
+  /** Balances that earn the 2031 return, after that year's rebalance. */
+  balances: number[];
+  weights: number[];
+  driftedWeights: number[];
+  shortRate: number | null;
+}
+
+export interface StateBin {
+  wealthLo: number;
+  wealthHi: number;
+  rateLo: number;
+  rateHi: number;
+  trainCount: number;
+  low: number | null;
+  high: number | null;
+}
+
+export interface StateRangeReport {
+  coverage: number | null;
+  coverageSe: number | null;
+  /** Normal approximation interval for the out-of-sample coverage. */
+  coverageLow: number | null;
+  coverageHigh: number | null;
+  bins: StateBin[];
+  note: string;
+}
+
+export interface SamplerComparison {
+  trials: number;
+  pseudoMean: number;
+  sobolMean: number;
+  pseudoError: number;
+  sobolError: number;
+  note: string;
+}
+
+export interface ProvenanceStamp {
+  dataAsOf: string;
+  treasurySha256: string;
+  frenchSha256: string;
+  frenchNote: string;
+  curveNote: string;
+  teachingNote: string;
+  seed: number;
+  version: string;
+  gitCommit: string;
+  assumptionsHash: string;
+}
+
+export interface TrialCurveSummary {
+  mode: ReserveDiscount;
+  label: string;
+  p5: number | null;
+  p50: number | null;
+  p95: number | null;
+  mean: number | null;
+  standardError: number | null;
 }
 
 export interface MixResult {
@@ -507,6 +638,9 @@ export interface MixResult {
   fullyFundedProbability: number | null;
   cvar5: number | null;
   meanMaxDrawdown: number | null;
+  /** Mean of this mix's 2033 wealth minus the workspace book's, same trials. */
+  pairedMeanDiff: number | null;
+  pairedSe: number | null;
 }
 
 export interface ModelOutput {
@@ -527,6 +661,12 @@ export interface ModelOutput {
     byYear: { calendarYear: number; values: Record<string, number> }[];
     wealth2031: number[];
     wealth2033: number[];
+    /** Present value of the ten payments on this trial's 2033 curve, or the fixed reserve repeated. */
+    reserve: number[];
+    /** Beginning-of-2033 wealth minus that trial's reserve. */
+    gift: number[];
+    /** Peak-to-trough drop of the unit NAV on this trial. */
+    drawdown: number[];
   } | null;
   reserve: {
     sizings: Record<ReserveMethod, ReserveSizing>;
@@ -552,6 +692,10 @@ export interface ModelOutput {
   } | null;
   views: ModelViews;
   metrics: RiskMetrics | null;
+  trialCurve: TrialCurveSummary | null;
+  stateRange: StateRangeReport | null;
+  samplerComparison: SamplerComparison | null;
+  provenance: ProvenanceStamp | null;
   /** Same seed and same streams as the main sample. Empty when no mixes are listed. */
   mixes: MixResult[];
 }

@@ -85,18 +85,25 @@ export function zeroAssumptions(): Assumptions {
       [0, 1],
     ],
     correlationStress: 0,
+    correlationRepair: "none",
     rebalance: "annual",
     returnModel: "lognormal",
     shockModel: "parametric",
     bootstrapHistory: [],
     blockLength: 1,
+    bootstrapScheme: "stationary",
     normalFloor: -0.999,
+    correctNormalFloor: true,
+    sampling: "pseudo",
     inflation: 0,
+    inflationSigma: 0,
+    inflationBeta: 0,
     trials: 1000,
     seed: 42,
     percentiles: [0.01, 0.05, 0.1, 0.5, 0.9, 0.95],
     reserve: {
       method: "ladder",
+      discountMode: "fixed_yield",
       discountYield: 0,
       surplusMargin: 0,
       stressReturn: 0,
@@ -121,7 +128,7 @@ export function zeroAssumptions(): Assumptions {
     rates: zeroRateParams(),
     equity: zeroEquityParams(),
     basket: satelliteCatalog(),
-    costs: { transactionCostBps: 0 },
+    costs: { transactionCostBps: 0, gainTaxRate: 0, account: "untaxed" },
     mixes: [],
   };
 }
@@ -142,6 +149,7 @@ export function teachingAssumptions(): Assumptions {
     [0.1, 1],
   ];
   next.inflation = 0.02;
+  next.reserve.discountMode = "trial_curve";
   next.reserve.discountYield = 0.03;
   next.reserve.stressReturn = 0.01;
   next.reserve.shortfallMu = 0.03;
