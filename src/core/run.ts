@@ -1,16 +1,13 @@
 import { creditFlag, isBondKind, treasuryYield } from "./bonds";
 import { effectiveN, heldCount } from "./equity";
-import { COMMUNICATION_YEAR, DECISION_YEAR, DISCLAIMER, OPERATING_PAYMENTS } from "./case";
+import { COMMUNICATION_YEAR, DECISION_YEAR, DISCLAIMER, FIRST_PROJECTION_YEAR, LAST_PROJECTION_YEAR, OPERATING_PAYMENTS } from "./case";
 import { prepareCorrelation } from "./correlation";
 import { applyRule, contributionsPathwise, percentileBand, scenarioEnvelope } from "./facility";
-import { weightsAtYear, weightsSumToOne } from "./glide";
+import { weightTable, weightsAtYear, weightsSumToOne } from "./glide";
 import { provenanceStamp } from "./provenance";
 import {
   batchMeansError,
   cvar5,
-  maxDrawdown,
-  sharpeRatio,
-  sortinoRatio,
   SPEC_PERCENTILES,
   standardErrorMean,
   CONVERGENCE_NOTE,
@@ -18,7 +15,7 @@ import {
 } from "./metrics";
 import { normalFloorAdjustment, normalizeSeed, percentile, percentiles, seedProblem } from "./math";
 import { priceTrial, usesPricedModel } from "./pricing";
-import { buildSchedule, continueFromBalances, projectBook, projectPath, wealthInYear } from "./project";
+import { buildSchedule, continueFromBalances, projectPath, walkTrial, wealthInYear, type ReturnSchedule } from "./project";
 import { ratePath, toRatePathPoints } from "./rates";
 import { fundingByRegime, REGIME_TABLE_NOTE } from "./regimeReserve";
 import { reserveFromCurve, rollReserve, scheduleReturnsFor, shortfallOrderStatistic, shortfallRequirementSample, sizeReserve, sizingRate } from "./reserve";
@@ -398,64 +395,119 @@ export function runModel(assumptions: Assumptions, hooks?: RunHooks): ModelOutpu
     };
   });
   const fallbackRate = assumptions.rates?.r0 ?? 0;
-  const index2031 = COMMUNICATION_YEAR - 2027;
+  const sleeveCount = assumptions.sleeves.length;
+  const mainPolicy = weightTable(assumptions.glide, FIRST_PROJECTION_YEAR, LAST_PROJECTION_YEAR);
+  const mixPolicy = mixPlans.map((plan) =>
+    plan.error
+      ? null
+      : weightTable(
+          [
+            { year: 2027, weights: plan.mix.weights2027 },
+            { year: 2033, weights: plan.mix.weights2033 },
+          ],
+          FIRST_PROJECTION_YEAR,
+          LAST_PROJECTION_YEAR,
+        ),
+  );
+  const columnLists: number[][] = [];
+  for (let year = FIRST_PROJECTION_YEAR; year <= LAST_PROJECTION_YEAR; year++) {
+    const list: number[] = [];
+    columns.set(year, list);
+    columnLists.push(list);
+  }
+  const trialInput = { ...pathBase, mode: "mc" as const, trial: 0 };
+  const bal = Array(sleeveCount).fill(0);
+  const balH = Array(sleeveCount).fill(0);
+  const driftedBuf = Array(sleeveCount).fill(0);
+  const actualBuf = Array(sleeveCount).fill(0);
+  const startBuf = Array(sleeveCount).fill(0);
+  const wealthOut = Array(columnLists.length).fill(0);
+  const mixBal = Array(sleeveCount).fill(0);
+  const mixBalH = Array(sleeveCount).fill(0);
+  const mixDrifted = Array(sleeveCount).fill(0);
+  const mixActual = Array(sleeveCount).fill(0);
+  const mixStart = Array(sleeveCount).fill(0);
+  const gainTaxRate = assumptions.costs.account === "taxable" && assumptions.costs.gainTaxRate > 0 ? assumptions.costs.gainTaxRate : 0;
+  const inlineAnchor =
+    assumptions.facility.conditionalSource === "median_2031"
+      ? null
+      : conditionalAnchorValue(assumptions, scenarioPaths, []);
+  const conditionalInline: number[] | null = inlineAnchor === null ? null : [];
+  const anchorBal = Array(sleeveCount).fill(0);
+  const anchorHtm = Array(sleeveCount).fill(0);
+  const anchorPolicy = mainPolicy[COMMUNICATION_YEAR - FIRST_PROJECTION_YEAR] ?? [];
+  const scheduleScratch: ReturnSchedule = { mtm: [], htm: [], cash: [], price: [], rates: [] };
 
   for (let trial = 0; trial < assumptions.trials; trial++) {
-    const input = { ...pathBase, mode: "mc" as const, trial };
-    const returns = buildSchedule(input);
-    const book = projectBook(input, returns);
-    const path = book.points;
-    const drawdown = maxDrawdown(path);
-    drawdowns.push(drawdown);
-    const ratios = trialRatios(path, fallbackRate);
-    if (ratios.sharpe !== null) sharpes.push(ratios.sharpe);
-    if (ratios.sortino !== null) sortinos.push(ratios.sortino);
-    for (const point of path) {
-      if (!Number.isFinite(point.wealthStart)) nonFinite = true;
-      const column = columns.get(point.calendarYear) ?? [];
-      column.push(point.wealthStart);
-      columns.set(point.calendarYear, column);
-      if (point.priceComponents) {
-        priceYears += 1;
-        point.priceComponents.forEach((value, index) => {
-          priceSums[index] += value;
-        });
-      }
-    }
-    const w2031 = wealthInYear(path, COMMUNICATION_YEAR);
-    const w2033 = wealthInYear(path, DECISION_YEAR);
+    trialInput.trial = trial;
+    const returns = buildSchedule(trialInput, scheduleScratch);
+    const sketch = walkTrial({
+      policy: mainPolicy,
+      schedule: returns,
+      rebalance: assumptions.rebalance,
+      bps: assumptions.costs.transactionCostBps,
+      gainTaxRate,
+      balances: bal,
+      balancesHtm: balH,
+      drifted: driftedBuf,
+      actual: actualBuf,
+      start: startBuf,
+      wealthOut,
+      fallbackRate,
+      priceSums,
+    });
+    if (sketch.nonFinite) nonFinite = true;
+    priceYears += sketch.priceYears;
+    for (let offset = 0; offset < columnLists.length; offset++) columnLists[offset].push(wealthOut[offset]);
+    drawdowns.push(sketch.drawdown);
+    if (sketch.sharpe !== null) sharpes.push(sketch.sharpe);
+    if (sketch.sortino !== null) sortinos.push(sketch.sortino);
+    const w2031 = sketch.wealth2031;
+    const w2033 = sketch.wealth2033;
     const reserveT = trialReserve(assumptions, returns, active.reserve);
     if (!Number.isFinite(w2031) || !Number.isFinite(w2033) || !Number.isFinite(reserveT)) nonFinite = true;
     wealth2031.push(w2031);
     wealth2033.push(w2033);
     reserves.push(reserveT);
     gifts.push(w2033 - reserveT);
-    const point2031 = path.find((point) => point.calendarYear === COMMUNICATION_YEAR);
     const curve2031 = returns.rates?.find((row) => row.calendarYear === COMMUNICATION_YEAR)?.short ?? null;
     states.push({
       trial,
       wealth: w2031,
-      balances: book.startBalances[index2031] ?? [],
-      weights: point2031?.actualWeights ?? [],
-      driftedWeights: point2031?.driftedWeights ?? [],
-      shortRate: point2031?.cashYield ?? curve2031,
+      balances: sketch.balances2031,
+      weights: sketch.weights2031,
+      driftedWeights: sketch.drifted2031,
+      shortRate: sketch.cash2031 ?? curve2031,
     });
-    const firstReturn = path[0]?.sleeveReturns?.[0];
-    sleeve0.push(Number.isFinite(firstReturn) ? (firstReturn as number) : Number.NaN);
-    for (const plan of mixPlans) {
-      if (plan.error) continue;
-      const mixBook = projectBook(
-        {
-          ...input,
-          glide: [
-            { year: 2027, weights: plan.mix.weights2027 },
-            { year: 2033, weights: plan.mix.weights2033 },
-          ],
-        },
-        returns,
-      );
-      plan.wealth.push(wealthInYear(mixBook.points, DECISION_YEAR));
-      plan.drawdowns.push(maxDrawdown(mixBook.points));
+    sleeve0.push(sketch.firstReturn);
+    for (let mixIndex = 0; mixIndex < mixPlans.length; mixIndex++) {
+      const plan = mixPlans[mixIndex];
+      const policy = mixPolicy[mixIndex];
+      if (plan.error || !policy) continue;
+      const mixSketch = walkTrial({
+        policy,
+        schedule: returns,
+        rebalance: assumptions.rebalance,
+        bps: assumptions.costs.transactionCostBps,
+        gainTaxRate,
+        balances: mixBal,
+        balancesHtm: mixBalH,
+        drifted: mixDrifted,
+        actual: mixActual,
+        start: mixStart,
+        wealthOut: null,
+        fallbackRate,
+        priceSums: null,
+      });
+      plan.wealth.push(mixSketch.wealth2033);
+      plan.drawdowns.push(mixSketch.drawdown);
+    }
+    if (conditionalInline && inlineAnchor !== null) {
+      for (let i = 0; i < sleeveCount; i++) {
+        anchorBal[i] = inlineAnchor * (anchorPolicy[i] ?? 0);
+        anchorHtm[i] = anchorBal[i];
+      }
+      conditionalInline.push(continueFromBalances(assumptions, anchorBal, anchorHtm, trial, returns, mainPolicy));
     }
     if (hooks?.onProgress && (trial % 50 === 49 || trial + 1 === assumptions.trials)) {
       hooks.onProgress(trial + 1, assumptions.trials);
@@ -476,7 +528,9 @@ export function runModel(assumptions: Assumptions, hooks?: RunHooks): ModelOutpu
     });
   }
 
-  const conditional = simulateTwoYearWealth(assumptions, conditionalAnchorValue(assumptions, scenarioPaths, wealth2031));
+  const conditional =
+    conditionalInline ??
+    simulateTwoYearWealth(assumptions, conditionalAnchorValue(assumptions, scenarioPaths, wealth2031));
   if (conditional.some((value) => !Number.isFinite(value))) {
     return halted({
       errors: ["A 2031–2033 continuation was not a finite number. The sample was discarded instead of being recorded as zero."],
@@ -555,30 +609,6 @@ function trialReserve(assumptions: Assumptions, schedule: { rates: { calendarYea
 function curveReserve(assumptions: Assumptions, scenario: ScenarioName): number {
   const rows = ratePath({ params: assumptions.rates, seed: assumptions.seed, trial: 0, mode: "scenario", scenario });
   return reserveFromCurve(rows.find((row) => row.calendarYear === DECISION_YEAR) ?? null);
-}
-
-function trialRatios(path: YearPoint[], fallback: number): { sharpe: number | null; sortino: number | null } {
-  const excess: number[] = [];
-  for (const point of path) {
-    if (point.yearReturn === null || !Number.isFinite(point.yearReturn)) continue;
-    const cash = point.cashYield;
-    const riskFree = cash !== null && Number.isFinite(cash) ? cash : fallback;
-    excess.push(point.yearReturn - riskFree);
-  }
-  if (excess.length < 2) return { sharpe: null, sortino: null };
-  const mean = excess.reduce((total, value) => total + value, 0) / excess.length;
-  let square = 0;
-  let down = 0;
-  for (const value of excess) {
-    const gap = value - mean;
-    square += gap * gap;
-    const below = Math.min(value, 0);
-    down += below * below;
-  }
-  return {
-    sharpe: sharpeRatio(mean, Math.sqrt(square / (excess.length - 1))),
-    sortino: sortinoRatio(mean, Math.sqrt(down / excess.length)),
-  };
 }
 
 function meanOf(values: number[]): number | null {

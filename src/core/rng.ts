@@ -42,13 +42,24 @@ export const STREAM = {
 
 export type StreamId = (typeof STREAM)[keyof typeof STREAM];
 
-const MASK = (1n << 64n) - 1n;
+/**
+ * SplitMix64 on two uint32 limbs. The recurrence is the public SplitMix64
+ * (Steele, 2014) and matches the previous BigInt implementation bit for bit,
+ * including the audit word for seed 42. MODEL_SPEC §6.1.
+ * A negative coordinate, or one that does not fit in 32 bits, uses the BigInt
+ * path so the two's-complement mix stays the same.
+ */
+const MASK64 = (1n << 64n) - 1n;
+const GOLDEN = 0x9e3779b97f4a7c15n;
+const MUL_1 = 0xbf58476d1ce4e5b9n;
+const MUL_2 = 0x94d049bb133111ebn;
+const U32 = 4294967296;
 
-function splitmix64(x: bigint): bigint {
-  let z = (x + 0x9e3779b97f4a7c15n) & MASK;
-  z = ((z ^ (z >> 30n)) * 0xbf58476d1ce4e5b9n) & MASK;
-  z = ((z ^ (z >> 27n)) * 0x94d049bb133111ebn) & MASK;
-  return (z ^ (z >> 31n)) & MASK;
+function splitmixBig(x: bigint): bigint {
+  let z = (x + GOLDEN) & MASK64;
+  z = ((z ^ (z >> 30n)) * MUL_1) & MASK64;
+  z = ((z ^ (z >> 27n)) * MUL_2) & MASK64;
+  return (z ^ (z >> 31n)) & MASK64;
 }
 
 function toBig(value: number): bigint {
@@ -57,10 +68,150 @@ function toBig(value: number): bigint {
   return trunc < 0 ? -BigInt(-trunc) : BigInt(trunc);
 }
 
+function fitsUint32(value: number): boolean {
+  return Number.isInteger(value) && value >= 0 && value <= 0xffffffff;
+}
+
+let outHi = 0;
+let outLo = 0;
+
+function mixFast(seed: number, streamId: number, trial: number, step: number, dimension: number): void {
+  let hi = 0x9e3779b9;
+  let lo = 0x7f4a7c15;
+  const parts = [seed, streamId, trial, step, dimension];
+  for (let i = 0; i < 5; i++) {
+    let ah = hi;
+    let al = (lo ^ parts[i]) >>> 0;
+    let sum = al + 0x7f4a7c15;
+    let zh = (ah + 0x9e3779b9 + (sum >= U32 ? 1 : 0)) >>> 0;
+    let zl = sum >>> 0;
+    let sh = zh >>> 30;
+    let sl = ((zh << 2) | (zl >>> 30)) >>> 0;
+    ah = (zh ^ sh) >>> 0;
+    al = (zl ^ sl) >>> 0;
+    let x = al;
+    let y = 0x1ce4e5b9;
+    let xh = (x >>> 16) & 65535;
+    let xl = x & 65535;
+    let yh = (y >>> 16) & 65535;
+    let yl = y & 65535;
+    let ll = xl * yl;
+    let lh = xl * yh;
+    let hl = xh * yl;
+    let hh = xh * yh;
+    let mid = (ll >>> 16) + (lh & 65535) + (hl & 65535);
+    let p0lo = ((ll & 65535) | ((mid & 65535) << 16)) >>> 0;
+    let p0hi = (hh + (lh >>> 16) + (hl >>> 16) + (mid >>> 16)) >>> 0;
+    x = ah;
+    y = 0x1ce4e5b9;
+    xh = (x >>> 16) & 65535;
+    xl = x & 65535;
+    yh = (y >>> 16) & 65535;
+    yl = y & 65535;
+    ll = xl * yl;
+    lh = xl * yh;
+    hl = xh * yl;
+    hh = xh * yh;
+    mid = (ll >>> 16) + (lh & 65535) + (hl & 65535);
+    const p1lo = ((ll & 65535) | ((mid & 65535) << 16)) >>> 0;
+    x = al;
+    y = 0xbf58476d;
+    xh = (x >>> 16) & 65535;
+    xl = x & 65535;
+    yh = (y >>> 16) & 65535;
+    yl = y & 65535;
+    ll = xl * yl;
+    lh = xl * yh;
+    hl = xh * yl;
+    hh = xh * yh;
+    mid = (ll >>> 16) + (lh & 65535) + (hl & 65535);
+    const p2lo = ((ll & 65535) | ((mid & 65535) << 16)) >>> 0;
+    zh = (p0hi + p1lo + p2lo) >>> 0;
+    zl = p0lo;
+    sh = zh >>> 27;
+    sl = ((zh << 5) | (zl >>> 27)) >>> 0;
+    ah = (zh ^ sh) >>> 0;
+    al = (zl ^ sl) >>> 0;
+    x = al;
+    y = 0x133111eb;
+    xh = (x >>> 16) & 65535;
+    xl = x & 65535;
+    yh = (y >>> 16) & 65535;
+    yl = y & 65535;
+    ll = xl * yl;
+    lh = xl * yh;
+    hl = xh * yl;
+    hh = xh * yh;
+    mid = (ll >>> 16) + (lh & 65535) + (hl & 65535);
+    p0lo = ((ll & 65535) | ((mid & 65535) << 16)) >>> 0;
+    p0hi = (hh + (lh >>> 16) + (hl >>> 16) + (mid >>> 16)) >>> 0;
+    x = ah;
+    y = 0x133111eb;
+    xh = (x >>> 16) & 65535;
+    xl = x & 65535;
+    yh = (y >>> 16) & 65535;
+    yl = y & 65535;
+    ll = xl * yl;
+    lh = xl * yh;
+    hl = xh * yl;
+    hh = xh * yh;
+    mid = (ll >>> 16) + (lh & 65535) + (hl & 65535);
+    const q1lo = ((ll & 65535) | ((mid & 65535) << 16)) >>> 0;
+    x = al;
+    y = 0x94d049bb;
+    xh = (x >>> 16) & 65535;
+    xl = x & 65535;
+    yh = (y >>> 16) & 65535;
+    yl = y & 65535;
+    ll = xl * yl;
+    lh = xl * yh;
+    hl = xh * yl;
+    hh = xh * yh;
+    mid = (ll >>> 16) + (lh & 65535) + (hl & 65535);
+    const q2lo = ((ll & 65535) | ((mid & 65535) << 16)) >>> 0;
+    zh = (p0hi + q1lo + q2lo) >>> 0;
+    zl = p0lo;
+    sh = zh >>> 31;
+    sl = ((zh << 1) | (zl >>> 31)) >>> 0;
+    hi = (zh ^ sh) >>> 0;
+    lo = (zl ^ sl) >>> 0;
+  }
+  outHi = hi;
+  outLo = lo;
+}
+
+function mixSlow(seed: number, streamId: number, trial: number, step: number, dimension: number): { hi: number; lo: number } {
+  let z = GOLDEN;
+  for (const part of [seed, streamId, trial, step, dimension]) z = splitmixBig(z ^ toBig(part));
+  return { hi: Number((z >> 32n) & 0xffffffffn), lo: Number(z & 0xffffffffn) };
+}
+
+let hotSeed = -1;
+
+function mixWord(masterSeed: number, streamId: number, trial: number, step: number, dimension: number): { hi: number; lo: number } {
+  if (masterSeed !== hotSeed) hotSeed = normalizeSeed(masterSeed);
+  if (
+    fitsUint32(hotSeed) &&
+    (streamId | 0) === streamId &&
+    streamId >= 0 &&
+    (trial | 0) === trial &&
+    trial >= 0 &&
+    (step | 0) === step &&
+    step >= 0 &&
+    (dimension | 0) === dimension &&
+    dimension >= 0
+  ) {
+    mixFast(hotSeed, streamId, trial, step, dimension);
+    return { hi: outHi, lo: outLo };
+  }
+  return mixSlow(hotSeed, streamId, trial, step, dimension);
+}
+
 /**
  * The raw SplitMix64 word at one coordinate, split into the high and low 32 bits.
  * This is the value Bend prints as `draw_hi` / `draw_lo`. The uniform and the
  * normal are derived from it. Quote the word when a run has to match bit for bit.
+ * MODEL_SPEC §6.1.
  */
 export function rawWord(
   masterSeed: number,
@@ -69,14 +220,10 @@ export function rawWord(
   step: number,
   dimension: number,
 ): { hi: number; lo: number } {
-  let z = 0x9e3779b97f4a7c15n;
-  for (const part of [normalizeSeed(masterSeed), streamId, trial, step, dimension]) {
-    z = splitmix64(z ^ toBig(part));
-  }
-  return { hi: Number((z >> 32n) & 0xffffffffn), lo: Number(z & 0xffffffffn) };
+  return mixWord(masterSeed, streamId, trial, step, dimension);
 }
 
-/** Uniform on (0, 1), never 0 and never 1. */
+/** Uniform on (0, 1), never 0 and never 1. MODEL_SPEC §6.1. */
 export function unitInterval(
   masterSeed: number,
   streamId: number,
@@ -84,17 +231,39 @@ export function unitInterval(
   step: number,
   dimension: number,
 ): number {
-  let z = 0x9e3779b97f4a7c15n;
-  for (const part of [normalizeSeed(masterSeed), streamId, trial, step, dimension]) {
-    z = splitmix64(z ^ toBig(part));
+  if (masterSeed !== hotSeed) hotSeed = normalizeSeed(masterSeed);
+  if (
+    (streamId | 0) === streamId &&
+    streamId >= 0 &&
+    (trial | 0) === trial &&
+    trial >= 0 &&
+    (step | 0) === step &&
+    step >= 0 &&
+    (dimension | 0) === dimension &&
+    dimension >= 0
+  ) {
+    mixFast(hotSeed, streamId, trial, step, dimension);
+    return (outHi * 2097152 + (outLo >>> 11) + 0.5) / 9007199254740992;
   }
-  const bits = (z >> 11n) & ((1n << 53n) - 1n);
-  return (Number(bits) + 0.5) / 2 ** 53;
+  const word = mixSlow(hotSeed, streamId, trial, step, dimension);
+  const bits = ((word.hi * 2097152) + (word.lo >>> 11));
+  return (bits + 0.5) / 9007199254740992;
 }
+
+let pairSeed = Number.NaN;
+let pairStream = 0;
+let pairTrial = 0;
+let pairStep = 0;
+let pairIndex = -1;
+let pairCos = 0;
+let pairSin = 0;
 
 /**
  * Standard normal at one coordinate. Dimension 2k and 2k+1 are a Box–Muller pair
- * built from two uniforms at those dimensions. No generator state is kept.
+ * built from two uniforms at those dimensions. No generator state is kept:
+ * the pair is a pure function of the coordinate. The last pair is remembered
+ * only so the sibling dimension does not mix the same two words twice.
+ * MODEL_SPEC §6.1.
  */
 export function standardNormal(
   masterSeed: number,
@@ -103,12 +272,33 @@ export function standardNormal(
   step: number,
   dimension: number,
 ): number {
-  const pair = Math.floor(dimension / 2);
-  const u = unitInterval(masterSeed, streamId, trial, step, pair * 2);
-  const v = unitInterval(masterSeed, streamId, trial, step, pair * 2 + 1);
+  if (dimension < 0 || trial < 0 || step < 0 || streamId < 0) {
+    const pairSlow = Math.floor(dimension / 2);
+    const uSlow = unitInterval(masterSeed, streamId, trial, step, pairSlow * 2);
+    const vSlow = unitInterval(masterSeed, streamId, trial, step, pairSlow * 2 + 1);
+    const magnitudeSlow = Math.sqrt(-2 * Math.log(uSlow));
+    const angleSlow = 2 * Math.PI * vSlow;
+    return dimension % 2 === 0 ? magnitudeSlow * Math.cos(angleSlow) : magnitudeSlow * Math.sin(angleSlow);
+  }
+  const pair = dimension >> 1;
+  if (pairSeed === masterSeed && pairStream === streamId && pairTrial === trial && pairStep === step && pairIndex === pair) {
+    return (dimension & 1) === 0 ? pairCos : pairSin;
+  }
+  if (masterSeed !== hotSeed) hotSeed = normalizeSeed(masterSeed);
+  mixFast(hotSeed, streamId, trial, step, pair * 2);
+  const u = (outHi * 2097152 + (outLo >>> 11) + 0.5) / 9007199254740992;
+  mixFast(hotSeed, streamId, trial, step, pair * 2 + 1);
+  const v = (outHi * 2097152 + (outLo >>> 11) + 0.5) / 9007199254740992;
   const magnitude = Math.sqrt(-2 * Math.log(u));
   const angle = 2 * Math.PI * v;
-  return dimension % 2 === 0 ? magnitude * Math.cos(angle) : magnitude * Math.sin(angle);
+  pairSeed = masterSeed;
+  pairStream = streamId;
+  pairTrial = trial;
+  pairStep = step;
+  pairIndex = pair;
+  pairCos = magnitude * Math.cos(angle);
+  pairSin = magnitude * Math.sin(angle);
+  return (dimension & 1) === 0 ? pairCos : pairSin;
 }
 
 export interface StreamManifest {

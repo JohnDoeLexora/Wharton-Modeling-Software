@@ -3,6 +3,9 @@ import {
   DEFAULT_LAMBDA,
   DEFAULT_LAMBDA2,
   fitFactorsToThree,
+  loading1,
+  loading2,
+  QUOTE_FLOOR,
   quoteYield,
   quotedZero,
   type Factors,
@@ -212,56 +215,82 @@ export interface EvolvedRate {
   curveModel: CurveModel;
 }
 
-function blankFactors(factors: Factors, curveModel: CurveModel): Pick<
-  EvolvedRate,
-  "beta0" | "beta1" | "beta2" | "beta3" | "lambda" | "lambda2" | "curveModel"
-> {
-  return {
-    beta0: factors.beta0,
-    beta1: factors.beta1,
-    beta2: factors.beta2,
-    beta3: factors.beta3,
-    lambda: factors.lambda,
-    lambda2: factors.lambda2,
-    curveModel,
-  };
-}
-
 /**
  * One curve per beginning-of-year date from 2027 through 2042.
  * The shock is applied during the year, so it shows up in the next date.
  * Nelson-Siegel steps the level, slope, and curvature. The regime drift is added to the level.
  * Quotes use the zero floor. The three-point model floors its short-rate state at the same zero.
  */
+function takeRow(rows: EvolvedRate[], index: number): EvolvedRate {
+  let row = rows[index];
+  if (!row) {
+    row = {
+      calendarYear: 0,
+      short: 0,
+      intermediate: 0,
+      long: 0,
+      drift: 0,
+      shock: 0,
+      beta0: 0,
+      beta1: 0,
+      beta2: 0,
+      beta3: 0,
+      lambda: 0,
+      lambda2: 0,
+      curveModel: "nelson_siegel",
+    };
+    rows[index] = row;
+  }
+  return row;
+}
+
 export function evolveShortRate(
   params: RateParams,
   shockAt: (year: number, dimension?: number) => number,
   scenarioShift = 0,
+  out?: EvolvedRate[],
 ): EvolvedRate[] {
-  if ((params.curveModel ?? "nelson_siegel") === "three_point") return evolveThreePoint(params, shockAt, scenarioShift);
-  return evolveFactors(params, shockAt, scenarioShift);
+  if ((params.curveModel ?? "nelson_siegel") === "three_point") return evolveThreePoint(params, shockAt, scenarioShift, out);
+  return evolveFactors(params, shockAt, scenarioShift, out);
 }
 
 function evolveThreePoint(
   params: RateParams,
   shockAt: (year: number, dimension?: number) => number,
   scenarioShift: number,
+  out?: EvolvedRate[],
 ): EvolvedRate[] {
-  const rows: EvolvedRate[] = [];
+  const rows = out ?? [];
   let short = quoteYield(params.r0);
   const factors = initialFactors({ ...params, curveModel: "nelson_siegel", useFactorStart: false });
+  let index = 0;
   for (let year = FIRST_PROJECTION_YEAR; year <= LAST_PROJECTION_YEAR; year++) {
     const drifting = year < LAST_PROJECTION_YEAR;
     const extra = drifting && year === FIRST_PROJECTION_YEAR ? scenarioShift : 0;
     const drift = drifting ? driftDuring(params, year, extra) : 0;
     const shock = drifting ? shockAt(year, 0) : 0;
     const curve = curveFromShort(short, params);
-    rows.push({ calendarYear: year, ...curve, drift, shock, ...blankFactors({ ...factors, beta0: short }, "three_point") });
+    const row = takeRow(rows, index);
+    index += 1;
+    row.calendarYear = year;
+    row.short = curve.short;
+    row.intermediate = curve.intermediate;
+    row.long = curve.long;
+    row.drift = drift;
+    row.shock = shock;
+    row.beta0 = short;
+    row.beta1 = factors.beta1;
+    row.beta2 = factors.beta2;
+    row.beta3 = factors.beta3;
+    row.lambda = factors.lambda;
+    row.lambda2 = factors.lambda2;
+    row.curveModel = "three_point";
     if (drifting) {
       const next = short + params.kappa * (params.theta - short) + drift + params.sigma * shock;
       short = quoteYield(next);
     }
   }
+  rows.length = index;
   return rows;
 }
 
@@ -269,35 +298,62 @@ function evolveFactors(
   params: RateParams,
   shockAt: (year: number, dimension?: number) => number,
   scenarioShift: number,
+  out?: EvolvedRate[],
 ): EvolvedRate[] {
-  const rows: EvolvedRate[] = [];
-  let factors = initialFactors(params);
+  const rows = out ?? [];
+  const start = initialFactors(params);
   const curveModel = params.curveModel === "svensson" ? "svensson" : "nelson_siegel";
+  // Loadings depend only on λ and the tenor, so a path reuses three quotes. MODEL_SPEC §2.2.
+  const shortL1 = loading1(start.lambda, 0);
+  const midL1 = loading1(start.lambda, 5);
+  const midL2 = loading2(start.lambda, 5);
+  const longL1 = loading1(start.lambda, 10);
+  const longL2 = loading2(start.lambda, 10);
+  const midL3 = start.beta3 === 0 ? 0 : loading2(start.lambda2, 5);
+  const longL3 = start.beta3 === 0 ? 0 : loading2(start.lambda2, 10);
+  let beta0 = start.beta0;
+  let beta1 = start.beta1;
+  let beta2 = start.beta2;
+  const beta3 = start.beta3;
+  const lambda = start.lambda;
+  const lambda2 = start.lambda2;
+  // A zero slope or curvature volatility multiplies that shock by zero, so the draw is skipped.
+  // Counter-based streams make the skipped coordinate irrelevant to every other draw. MODEL_SPEC §2.2.
+  const drawSlope = params.sigmaSlope !== 0;
+  const drawCurve = params.sigmaCurve !== 0;
+  let index = 0;
   for (let year = FIRST_PROJECTION_YEAR; year <= LAST_PROJECTION_YEAR; year++) {
     const drifting = year < LAST_PROJECTION_YEAR;
     const extra = drifting && year === FIRST_PROJECTION_YEAR ? scenarioShift : 0;
     const drift = drifting ? driftDuring(params, year, extra) : 0;
     const shock = drifting ? shockAt(year, 0) : 0;
-    const slopeShock = drifting ? shockAt(year, 1) : 0;
-    const curveShock = drifting ? shockAt(year, 2) : 0;
-    rows.push({
-      calendarYear: year,
-      short: quotedZero(factors, 0),
-      intermediate: quotedZero(factors, 5),
-      long: quotedZero(factors, 10),
-      drift,
-      shock,
-      ...blankFactors(factors, curveModel),
-    });
+    const slopeShock = drifting && drawSlope ? shockAt(year, 1) : 0;
+    const curveShock = drifting && drawCurve ? shockAt(year, 2) : 0;
+    const shortRaw = beta0 + beta1 * shortL1;
+    const midRaw = beta0 + beta1 * midL1 + beta2 * midL2 + beta3 * midL3;
+    const longRaw = beta0 + beta1 * longL1 + beta2 * longL2 + beta3 * longL3;
+    const row = takeRow(rows, index);
+    index += 1;
+    row.calendarYear = year;
+    row.short = shortRaw < QUOTE_FLOOR || !Number.isFinite(shortRaw) ? QUOTE_FLOOR : shortRaw;
+    row.intermediate = midRaw < QUOTE_FLOOR || !Number.isFinite(midRaw) ? QUOTE_FLOOR : midRaw;
+    row.long = longRaw < QUOTE_FLOOR || !Number.isFinite(longRaw) ? QUOTE_FLOOR : longRaw;
+    row.drift = drift;
+    row.shock = shock;
+    row.beta0 = beta0;
+    row.beta1 = beta1;
+    row.beta2 = beta2;
+    row.beta3 = beta3;
+    row.lambda = lambda;
+    row.lambda2 = lambda2;
+    row.curveModel = curveModel;
     if (drifting) {
-      factors = {
-        ...factors,
-        beta0: factors.beta0 + params.kappa * (params.theta - factors.beta0) + drift + params.sigma * shock,
-        beta1: factors.beta1 + params.kappaSlope * (params.thetaSlope - factors.beta1) + params.sigmaSlope * slopeShock,
-        beta2: factors.beta2 + params.kappaCurve * (params.thetaCurve - factors.beta2) + params.sigmaCurve * curveShock,
-      };
+      beta0 = beta0 + params.kappa * (params.theta - beta0) + drift + params.sigma * shock;
+      beta1 = beta1 + params.kappaSlope * (params.thetaSlope - beta1) + params.sigmaSlope * slopeShock;
+      beta2 = beta2 + params.kappaCurve * (params.thetaCurve - beta2) + params.sigmaCurve * curveShock;
     }
   }
+  rows.length = index;
   return rows;
 }
 
@@ -312,18 +368,22 @@ export function scenarioShift(scenario: ScenarioName | undefined): number {
   return 0;
 }
 
-export function ratePath(args: {
-  params: RateParams;
-  seed: number;
-  trial: number;
-  mode: "mc" | "scenario";
-  scenario?: ScenarioName;
-}): EvolvedRate[] {
+export function ratePath(
+  args: {
+    params: RateParams;
+    seed: number;
+    trial: number;
+    mode: "mc" | "scenario";
+    scenario?: ScenarioName;
+  },
+  out?: EvolvedRate[],
+): EvolvedRate[] {
   const shift = args.mode === "scenario" ? scenarioShift(args.scenario) : 0;
   return evolveShortRate(
     args.params,
     (year, dimension = 0) => (args.mode === "mc" ? standardNormal(args.seed, STREAM.rates, args.trial, year, dimension) : 0),
     shift,
+    out,
   );
 }
 

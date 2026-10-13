@@ -122,6 +122,148 @@ export function realizeReturn(
   return { balances: next, balancesHtm: nextHtm, yearReturn, yearReturnHtm };
 }
 
+function sumOf(values: number[]): number {
+  let total = 0;
+  for (let i = 0; i < values.length; i++) total += values[i] ?? 0;
+  return total;
+}
+
+/**
+ * Same arithmetic as `stepYear`, writing the next balances into the arrays
+ * the caller already owns. `drifted` and `actual`, when passed, receive the
+ * weights. MODEL_SPEC §5.1.
+ */
+export interface StepScratch {
+  wealthStart: number;
+  wealthStartHtm: number;
+  yearReturn: number | null;
+  yearReturnHtm: number | null;
+  twr: number | null;
+  nav: number;
+  fraction: number;
+  contributionCost: number;
+}
+
+export function stepYearMut(
+  balances: number[],
+  balancesHtm: number[],
+  navIn: number,
+  step: StepInput,
+  driftedOut?: number[],
+  actualOut?: number[],
+  startOut?: number[],
+  scratch?: StepScratch,
+): StepScratch {
+  const out: StepScratch = scratch ?? {
+    wealthStart: 0,
+    wealthStartHtm: 0,
+    yearReturn: null,
+    yearReturnHtm: null,
+    twr: null,
+    nav: navIn,
+    fraction: 0,
+    contributionCost: 0,
+  };
+  const policy = step.policy;
+  const n = policy.length;
+  const existing = sumOf(balances);
+  const existingHtm = sumOf(balancesHtm);
+  const contributionCost = contributionCostDollars(step.contribution, step.transactionCostBps);
+  const netContribution = step.contribution - contributionCost;
+  let fraction = 0;
+  if (step.rebalance === "annual") {
+    if (existing > 0) {
+      let l1 = 0;
+      const rate = costRateFromBps(step.transactionCostBps);
+      if (rate !== 0) {
+        for (let i = 0; i < n; i++) l1 += Math.abs(policy[i] - balances[i] / existing);
+        fraction = Math.min(1, 0.5 * l1 * rate);
+      }
+    }
+    const total = existing * (1 - fraction) + netContribution;
+    const totalHtm = existingHtm * (1 - fraction) + netContribution;
+    for (let i = 0; i < n; i++) {
+      const weight = policy[i] ?? 0;
+      if (driftedOut) driftedOut[i] = existing > 0 ? balances[i] / existing : weight;
+      balances[i] = total * weight;
+      balancesHtm[i] = totalHtm * weight;
+    }
+  } else {
+    for (let i = 0; i < n; i++) {
+      const weight = policy[i] ?? 0;
+      if (driftedOut) driftedOut[i] = existing > 0 ? balances[i] / existing : weight;
+      balances[i] += netContribution * weight;
+      balancesHtm[i] += netContribution * weight;
+    }
+  }
+
+  const wealthStart = sumOf(balances);
+  const wealthStartHtm = sumOf(balancesHtm);
+  if (startOut) {
+    for (let i = 0; i < n; i++) startOut[i] = balances[i];
+  }
+  if (actualOut) {
+    if (wealthStart > 0) {
+      for (let i = 0; i < n; i++) actualOut[i] = balances[i] / wealthStart;
+    } else {
+      for (let i = 0; i < n; i++) actualOut[i] = policy[i] ?? 0;
+    }
+  }
+  if (!step.returns) {
+    const twr = fraction > 0 ? -fraction : null;
+    out.wealthStart = wealthStart;
+    out.wealthStartHtm = wealthStartHtm;
+    out.yearReturn = null;
+    out.yearReturnHtm = null;
+    out.twr = twr;
+    out.nav = twr === null ? navIn : navIn * (1 + twr);
+    out.fraction = fraction;
+    out.contributionCost = contributionCost;
+    return out;
+  }
+
+  const htmReturns = step.returnsHtm ?? step.returns;
+  let yearReturn = 0;
+  let yearReturnHtm = 0;
+  if (wealthStart > 0) {
+    let acc = 0;
+    for (let i = 0; i < n; i++) acc += balances[i] * (step.returns[i] ?? 0);
+    yearReturn = acc / wealthStart;
+  }
+  if (wealthStartHtm > 0) {
+    let acc = 0;
+    for (let i = 0; i < n; i++) acc += balancesHtm[i] * (htmReturns[i] ?? 0);
+    yearReturnHtm = acc / wealthStartHtm;
+  } else yearReturnHtm = yearReturn;
+  for (let i = 0; i < n; i++) {
+    balances[i] *= 1 + (step.returns[i] ?? 0);
+    balancesHtm[i] *= 1 + (htmReturns[i] ?? 0);
+  }
+  if (step.gainTaxRate > 0 && yearReturn > 0 && wealthStart > 0) {
+    const tax = wealthStart * yearReturn * step.gainTaxRate;
+    const after = sumOf(balances);
+    if (after > 0 && tax > 0) {
+      const scale = Math.max(0, (after - tax) / after);
+      for (let i = 0; i < n; i++) {
+        balances[i] *= scale;
+        balancesHtm[i] *= scale;
+      }
+      yearReturn = sumOf(balances) / wealthStart - 1;
+      if (wealthStartHtm > 0) yearReturnHtm = sumOf(balancesHtm) / wealthStartHtm - 1;
+    }
+  }
+  const twr = (1 - fraction) * (1 + yearReturn) - 1;
+  out.wealthStart = wealthStart;
+  out.wealthStartHtm = wealthStartHtm;
+  out.yearReturn = yearReturn;
+  out.yearReturnHtm = yearReturnHtm;
+  out.twr = twr;
+  out.nav = navIn * (1 + twr);
+  out.fraction = fraction;
+  out.contributionCost = contributionCost;
+  return out;
+}
+
 export function stepYear(holdings: Holdings, step: StepInput): StepResult {
   const policy = step.policy;
   const existing = sum(holdings.balances);

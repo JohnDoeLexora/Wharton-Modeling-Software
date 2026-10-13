@@ -1,14 +1,16 @@
 import { isBondKind } from "./bonds";
 import { caseContribution, FIRST_PROJECTION_YEAR, LAST_PROJECTION_YEAR, yearIndex } from "./case";
 import { prepareCorrelation } from "./correlation";
-import { weightsAtYear } from "./glide";
+import { weightTable, weightsAtYear } from "./glide";
+import { sharpeRatio, sortinoRatio } from "./metrics";
+import { stepYearMut } from "./yearStep";
 import { correlatedShocks, simpleReturn } from "./math";
-import { cachedPriceTrial, sleeveKindOf, usesPricedModel } from "./pricing";
+import { cachedPriceTrial, fillPricedSchedule, sleeveKindOf, usesPricedModel } from "./pricing";
 import { ratePath, type EvolvedRate } from "./rates";
 import { STREAM, standardNormal, unitInterval } from "./rng";
 import { portfolioNormals } from "./shocks";
 import type { Assumptions, ReturnModel, ScenarioName, Sleeve, YearPoint } from "./types";
-import { emptyHoldings, realizeReturn, stepYear, type Holdings } from "./yearStep";
+import { emptyHoldings, stepYear, type StepInput, type StepScratch } from "./yearStep";
 
 export interface PathInput {
   sleeves: Sleeve[];
@@ -124,9 +126,23 @@ function wantsCurve(input: PathInput): boolean {
  * One trial's sleeve returns. Priced books read the cached price path.
  * Parametric and bootstrap books apply the crash overlay here, once.
  */
-export function buildSchedule(input: PathInput): ReturnSchedule {
+export function buildSchedule(input: PathInput, into?: ReturnSchedule): ReturnSchedule {
   const priced =
     input.source !== undefined && input.shockModel !== "block_bootstrap" && usesPricedModel(input.sleeves);
+  if (priced && input.source && into) {
+    if (!into.rates) into.rates = [];
+    fillPricedSchedule(
+      {
+        assumptions: input.source,
+        mode: input.mode,
+        scenario: input.scenario,
+        trial: input.trial,
+        factor: resolveFactor(input),
+      },
+      into,
+    );
+    return into;
+  }
   if (priced && input.source) {
     const table = cachedPriceTrial({
       assumptions: input.source,
@@ -142,10 +158,10 @@ export function buildSchedule(input: PathInput): ReturnSchedule {
     for (let offset = 0; offset < RETURN_COUNT; offset++) {
       const year = FIRST_PROJECTION_YEAR + offset;
       const slice = table.byYear.get(year);
-      mtm.push(slice ? slice.mtm.slice() : input.sleeves.map(() => Number.NaN));
-      htm.push(slice ? slice.htm.slice() : mtm[offset].slice());
+      mtm.push(slice ? slice.mtm : input.sleeves.map(() => Number.NaN));
+      htm.push(slice ? slice.htm : mtm[offset]);
       cash.push(slice?.cashYield ?? null);
-      price.push(slice ? slice.price.slice() : input.sleeves.map(() => 0));
+      price.push(slice ? slice.price : input.sleeves.map(() => 0));
     }
     return { mtm, htm, cash, price, rates: table.rates };
   }
@@ -275,6 +291,199 @@ export function projectPath(input: PathInput, schedule?: ReturnSchedule): YearPo
   return projectBook(input, schedule).points;
 }
 
+/**
+ * Beginning-of-2033 wealth and the unit-NAV max drawdown, without allocating a point per year.
+ * The numbers match `projectBook` plus `maxDrawdown`. Mixes use this so a five-mix sample
+ * does not build six copies of the year table. MODEL_SPEC §5.1.
+ */
+export interface TrialSketch {
+  wealth2031: number;
+  wealth2033: number;
+  drawdown: number;
+  sharpe: number | null;
+  sortino: number | null;
+  nonFinite: boolean;
+  balances2031: number[];
+  weights2031: number[];
+  drifted2031: number[];
+  cash2031: number | null;
+  firstReturn: number;
+  priceYears: number;
+}
+
+/**
+ * One trial, reusing the caller's balance buffers. Policy rows are the 16
+ * years 2027..2042. The drawdown and the ratios match `maxDrawdown` and the
+ * per-trial Sharpe in `run.ts`. MODEL_SPEC §5.1.
+ */
+const sharedStep: StepInput = {
+  contribution: 0,
+  policy: [],
+  rebalance: "annual",
+  transactionCostBps: 0,
+  gainTaxRate: 0,
+  returns: null,
+  returnsHtm: null,
+};
+const sharedScratch: StepScratch = {
+  wealthStart: 0,
+  wealthStartHtm: 0,
+  yearReturn: null,
+  yearReturnHtm: null,
+  twr: null,
+  nav: 1,
+  fraction: 0,
+  contributionCost: 0,
+};
+const excessBuf: number[] = [];
+const contBal: number[] = [];
+const contHtm: number[] = [];
+const contFlat: number[] = [];
+
+function copyInto(src: number[], dest: number[]): number[] {
+  if (dest.length !== src.length) dest.length = src.length;
+  for (let i = 0; i < src.length; i++) dest[i] = src[i];
+  return dest;
+}
+
+export function walkTrial(args: {
+  policy: number[][];
+  schedule: ReturnSchedule;
+  rebalance: PathInput["rebalance"];
+  bps: number;
+  gainTaxRate: number;
+  balances: number[];
+  balancesHtm: number[];
+  drifted: number[];
+  actual: number[];
+  start: number[];
+  wealthOut: number[] | null;
+  fallbackRate: number;
+  priceSums: number[] | null;
+}): TrialSketch {
+  const { balances, balancesHtm, schedule } = args;
+  balances.fill(0);
+  balancesHtm.fill(0);
+  let nav = 1;
+  let peak = 1;
+  let worst = 0;
+  let wealth2031 = Number.NaN;
+  let wealth2033 = Number.NaN;
+  let nonFinite = false;
+  let balances2031: number[] = [];
+  let weights2031: number[] = [];
+  let drifted2031: number[] = [];
+  let cash2031: number | null = null;
+  excessBuf.length = 0;
+  let priceYears = 0;
+  sharedStep.rebalance = args.rebalance;
+  sharedStep.transactionCostBps = args.bps;
+  sharedStep.gainTaxRate = args.gainTaxRate;
+  for (let offset = 0; offset <= LAST_PROJECTION_YEAR - FIRST_PROJECTION_YEAR; offset++) {
+    const year = FIRST_PROJECTION_YEAR + offset;
+    const terminal = year === LAST_PROJECTION_YEAR;
+    const returns = terminal ? null : schedule.mtm[offset] ?? null;
+    sharedStep.contribution = caseContribution(year);
+    sharedStep.policy = args.policy[offset] ?? [];
+    sharedStep.returns = returns;
+    sharedStep.returnsHtm = terminal ? null : schedule.htm[offset] ?? null;
+    const result = stepYearMut(
+      balances,
+      balancesHtm,
+      1,
+      sharedStep,
+      args.drifted,
+      args.actual,
+      args.start,
+      sharedScratch,
+    );
+    if (!Number.isFinite(result.wealthStart)) nonFinite = true;
+    if (args.wealthOut) args.wealthOut[offset] = result.wealthStart;
+    if (year === 2031) {
+      wealth2031 = result.wealthStart;
+      balances2031 = args.start.slice();
+      weights2031 = args.actual.slice();
+      drifted2031 = args.drifted.slice();
+      cash2031 = schedule.cash[offset] ?? null;
+    } else if (year === 2033) wealth2033 = result.wealthStart;
+    const twr = result.twr;
+    if (twr !== null && Number.isFinite(twr)) nav *= 1 + twr;
+    if (!Number.isFinite(nav)) {
+      nonFinite = true;
+      worst = Number.NaN;
+    } else if (nav > peak) peak = nav;
+    if (peak > 0 && Number.isFinite(worst)) {
+      const drawdown = (peak - nav) / peak;
+      if (drawdown > worst) worst = drawdown;
+    }
+    if (result.yearReturn !== null && Number.isFinite(result.yearReturn)) {
+      const cash = schedule.cash[offset] ?? null;
+      const riskFree = cash !== null && Number.isFinite(cash) ? cash : args.fallbackRate;
+      excessBuf.push(result.yearReturn - riskFree);
+    }
+    const price = schedule.price[offset];
+    if (!terminal && price && args.priceSums) {
+      priceYears += 1;
+      for (let i = 0; i < price.length; i++) args.priceSums[i] += price[i] ?? 0;
+    }
+  }
+  let sharpe: number | null = null;
+  let sortino: number | null = null;
+  if (excessBuf.length >= 2) {
+    let mean = 0;
+    for (const value of excessBuf) mean += value;
+    mean /= excessBuf.length;
+    let square = 0;
+    let down = 0;
+    for (const value of excessBuf) {
+      const gap = value - mean;
+      square += gap * gap;
+      const below = value < 0 ? value : 0;
+      down += below * below;
+    }
+    sharpe = sharpeRatio(mean, Math.sqrt(square / (excessBuf.length - 1)));
+    sortino = sortinoRatio(mean, Math.sqrt(down / excessBuf.length));
+  }
+  const first = schedule.mtm[0]?.[0];
+  return {
+    wealth2031,
+    wealth2033,
+    drawdown: worst,
+    sharpe,
+    sortino,
+    nonFinite,
+    balances2031,
+    weights2031,
+    drifted2031,
+    cash2031,
+    firstReturn: Number.isFinite(first) ? (first as number) : Number.NaN,
+    priceYears,
+  };
+}
+
+export function projectSummary(input: PathInput, schedule: ReturnSchedule, policy?: number[][]): { wealth2033: number; drawdown: number } {
+  const count = input.sleeves.length;
+  const table = policy ?? weightTable(input.glide, FIRST_PROJECTION_YEAR, LAST_PROJECTION_YEAR);
+  const balances = Array(count).fill(0);
+  const balancesHtm = Array(count).fill(0);
+  const sketch = walkTrial({
+    policy: table,
+    schedule,
+    rebalance: input.rebalance,
+    bps: input.source?.costs.transactionCostBps ?? 0,
+    gainTaxRate: gainTaxRateOf(input),
+    balances,
+    balancesHtm,
+    drifted: Array(count).fill(0),
+    actual: Array(count).fill(0),
+    start: Array(count).fill(0),
+    wealthOut: null,
+    fallbackRate: 0,
+    priceSums: null,
+  });
+  return { wealth2033: sketch.wealth2033, drawdown: sketch.drawdown };
+}
+
 export function pathInputFrom(assumptions: Assumptions, trial: number, factor?: number[][] | null): PathInput {
   return {
     sleeves: assumptions.sleeves,
@@ -322,30 +531,41 @@ export function continueFromBalances(
   balancesHtm: number[],
   trial: number,
   schedule?: ReturnSchedule,
+  policy?: number[][],
 ): number {
-  const input = pathInputFrom(assumptions, trial);
-  const built = schedule ?? buildSchedule(input);
+  const built = schedule ?? buildSchedule(pathInputFrom(assumptions, trial));
   const gainTaxRate = assumptions.costs.account === "taxable" && assumptions.costs.gainTaxRate > 0 ? assumptions.costs.gainTaxRate : 0;
   const offset2031 = 2031 - FIRST_PROJECTION_YEAR;
   const returns = built.mtm[offset2031];
   const returnsHtm = built.htm[offset2031] ?? returns;
   if (!returns || returns.some((value) => !Number.isFinite(value))) return Number.NaN;
-  const earned = realizeReturn(balances, balancesHtm, returns, returnsHtm, gainTaxRate);
-  let holdings: Holdings = { balances: earned.balances, balancesHtm: earned.balancesHtm, nav: 1 };
+  const count = balances.length;
+  const bal = copyInto(balances, contBal);
+  const htm = copyInto(balancesHtm, contHtm);
+  if (contFlat.length !== count) {
+    contFlat.length = count;
+    contFlat.fill(0);
+  }
+  // Drift and a zero contribution apply the 2031 return without a second rebalance. MODEL_SPEC §5.3.
+  sharedStep.contribution = 0;
+  sharedStep.policy = contFlat;
+  sharedStep.rebalance = "drift";
+  sharedStep.transactionCostBps = 0;
+  sharedStep.gainTaxRate = gainTaxRate;
+  sharedStep.returns = returns;
+  sharedStep.returnsHtm = returnsHtm;
+  stepYearMut(bal, htm, 1, sharedStep, undefined, undefined, undefined, sharedScratch);
   for (const year of [2032, 2033]) {
     const terminal = year === 2033;
     const offset = year - FIRST_PROJECTION_YEAR;
-    const result = stepYear(holdings, {
-      contribution: caseContribution(year),
-      policy: weightsAtYear(assumptions.glide, year),
-      rebalance: assumptions.rebalance,
-      transactionCostBps: assumptions.costs.transactionCostBps,
-      gainTaxRate,
-      returns: terminal ? null : built.mtm[offset] ?? null,
-      returnsHtm: terminal ? null : built.htm[offset] ?? null,
-    });
+    sharedStep.contribution = caseContribution(year);
+    sharedStep.policy = policy?.[offset] ?? weightsAtYear(assumptions.glide, year);
+    sharedStep.rebalance = assumptions.rebalance;
+    sharedStep.transactionCostBps = assumptions.costs.transactionCostBps;
+    sharedStep.returns = terminal ? null : built.mtm[offset] ?? null;
+    sharedStep.returnsHtm = terminal ? null : built.htm[offset] ?? null;
+    const result = stepYearMut(bal, htm, 1, sharedStep, undefined, undefined, undefined, sharedScratch);
     if (terminal) return Number.isFinite(result.wealthStart) ? result.wealthStart : Number.NaN;
-    holdings = { balances: result.balances, balancesHtm: result.balancesHtm, nav: result.nav };
   }
   return Number.NaN;
 }

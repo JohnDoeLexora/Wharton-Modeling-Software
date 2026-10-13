@@ -1,5 +1,5 @@
-import { bondTotalReturn, creditFlag, isBondKind, treasuryYield } from "./bonds";
-import { LAST_PROJECTION_YEAR } from "./case";
+import { creditFlag, isBondKind, treasuryYield } from "./bonds";
+import { FIRST_PROJECTION_YEAR, LAST_PROJECTION_YEAR } from "./case";
 import { equityKernel, sectorShockAt, singleNameReturn } from "./equity";
 import { correlatedShocks, normalizeSeed, simpleReturn } from "./math";
 import { ratePath, type EvolvedRate } from "./rates";
@@ -135,53 +135,89 @@ function parametricDraws(assumptions: Assumptions, trial: number, year: number, 
   return correlatedShocks(factor, z);
 }
 
-export function priceTrial(args: {
-  assumptions: Assumptions;
-  mode: "mc" | "scenario";
-  scenario?: ScenarioName;
-  trial: number;
-  factor: number[][] | null;
-}): { byYear: Map<number, YearSlice>; rates: EvolvedRate[] } {
-  const { assumptions, mode, trial } = args;
-  const rates = ratePath({
-    params: assumptions.rates,
-    seed: assumptions.seed,
-    trial,
-    mode,
-    scenario: args.scenario,
-  });
-  const byYear = new Map<number, YearSlice>();
-  const equitySleeve = assumptions.sleeves.find((sleeve) => sleeveKindOf(sleeve) === "equity_index");
-  const kernels = new Map<number, number>();
-  const markets = new Map<number, number>();
+export interface PricedColumns {
+  mtm: number[][];
+  htm: number[][];
+  price: number[][];
+  cash: (number | null)[];
+  rates: EvolvedRate[] | null;
+}
 
-  for (let index = 0; index < rates.length - 1; index++) {
-    const row = rates[index];
-    const kernel = equityKernel({
-      mode,
-      scenario: args.scenario,
+function fitColumn(rows: number[][], years: number, sleeves: number): void {
+  while (rows.length < years) rows.push(Array(sleeves).fill(0));
+  rows.length = years;
+  for (let year = 0; year < years; year++) {
+    const row = rows[year];
+    while (row.length < sleeves) row.push(0);
+    row.length = sleeves;
+  }
+}
+
+/**
+ * Write one trial's priced returns into `dest`. Reusing `dest` across trials
+ * keeps the same numbers as `priceTrial` without a fresh table per trial.
+ * MODEL_SPEC §4.
+ */
+export function fillPricedSchedule(
+  args: {
+    assumptions: Assumptions;
+    mode: "mc" | "scenario";
+    scenario?: ScenarioName;
+    trial: number;
+    factor: number[][] | null;
+  },
+  dest: PricedColumns,
+): void {
+  const { assumptions, mode, trial } = args;
+  if (!dest.rates) dest.rates = [];
+  const rates = ratePath(
+    {
+      params: assumptions.rates,
       seed: assumptions.seed,
       trial,
-      year: row.calendarYear,
-      df: equitySleeve?.studentDf ?? assumptions.equity.studentDf,
-      rho: assumptions.rates.equityRateCorr,
-      rateShock: row.shock,
-    });
-    kernels.set(row.calendarYear, kernel);
-    markets.set(row.calendarYear, marketReturn({ assumptions, kernel, equitySleeve }));
+      mode,
+      scenario: args.scenario,
+    },
+    dest.rates,
+  );
+  const equitySleeve = assumptions.sleeves.find((sleeve) => sleeveKindOf(sleeve) === "equity_index");
+  const wantParametric = mode === "mc" && assumptions.sleeves.some((sleeve) => sleeveKindOf(sleeve) === "parametric");
+  const sleeves = assumptions.sleeves;
+  const n = sleeves.length;
+  let years = 0;
+  for (let index = 0; index < rates.length - 1; index++) {
+    if (rates[index].calendarYear >= LAST_PROJECTION_YEAR) break;
+    years += 1;
   }
+  fitColumn(dest.mtm, years, n);
+  fitColumn(dest.htm, years, n);
+  fitColumn(dest.price, years, n);
+  while (dest.cash.length < years) dest.cash.push(null);
+  dest.cash.length = years;
 
+  let written = 0;
   for (let index = 0; index < rates.length - 1; index++) {
     const row = rates[index];
     const next = rates[index + 1];
     const year = row.calendarYear;
     if (year >= LAST_PROJECTION_YEAR) break;
-    const market = markets.get(year) ?? 0;
-    const draws = mode === "mc" ? parametricDraws(assumptions, trial, year, args.factor) : [];
-    const mtm: number[] = [];
-    const htm: number[] = [];
-    const price: number[] = [];
-    assumptions.sleeves.forEach((sleeve, sleeveIndex) => {
+    const kernel = equityKernel({
+      mode,
+      scenario: args.scenario,
+      seed: assumptions.seed,
+      trial,
+      year,
+      df: equitySleeve?.studentDf ?? assumptions.equity.studentDf,
+      rho: assumptions.rates.equityRateCorr,
+      rateShock: row.shock,
+    });
+    const market = marketReturn({ assumptions, kernel, equitySleeve });
+    const draws = wantParametric ? parametricDraws(assumptions, trial, year, args.factor) : [];
+    const mtm = dest.mtm[written];
+    const htm = dest.htm[written];
+    const price = dest.price[written];
+    for (let sleeveIndex = 0; sleeveIndex < n; sleeveIndex++) {
+      const sleeve = sleeves[sleeveIndex];
       const kind = sleeveKindOf(sleeve);
       let mtmReturn = 0;
       let htmReturn = 0;
@@ -221,16 +257,12 @@ export function priceTrial(args: {
         const spreadNow = sleeve.spread;
         const spreadNext = kind === "credit" ? sleeve.spread + sleeve.spreadBeta * Math.max(0, -market) : sleeve.spread;
         const loss = kind === "credit" ? defaultLoss({ sleeve, index: sleeveIndex, mode, seed: assumptions.seed, trial, year }) : 0;
-        const parts = bondTotalReturn({
-          yieldPrev: treasuryPrev + (kind === "credit" ? spreadNow : 0),
-          yieldNext: treasuryNext + (kind === "credit" ? spreadNext : 0),
-          duration: sleeve.duration,
-          convexity: sleeve.convexity,
-          defaultLoss: loss,
-        });
-        mtmReturn = parts.mtm;
-        htmReturn = parts.htm;
-        priceTerm = parts.price;
+        const yieldPrev = treasuryPrev + (kind === "credit" ? spreadNow : 0);
+        const yieldNext = treasuryNext + (kind === "credit" ? spreadNext : 0);
+        const dy = yieldNext - yieldPrev;
+        priceTerm = -sleeve.duration * dy + 0.5 * sleeve.convexity * dy * dy;
+        mtmReturn = yieldPrev + priceTerm - loss;
+        htmReturn = yieldPrev - loss;
       }
       if (assumptions.crashYear != null && assumptions.crashYear === year && !isBondKind(kind)) {
         const shock = assumptions.crashShock ?? 0;
@@ -239,17 +271,49 @@ export function priceTrial(args: {
       }
       mtmReturn = applyExpense(mtmReturn, sleeve.expenseRatio);
       htmReturn = applyExpense(htmReturn, sleeve.expenseRatio);
-      mtm.push(floorReturn(mtmReturn, assumptions.normalFloor));
-      htm.push(floorReturn(htmReturn, assumptions.normalFloor));
-      price.push(priceTerm);
-    });
-    byYear.set(year, { mtm, htm, price, cashYield: row.short });
+      mtm[sleeveIndex] = floorReturn(mtmReturn, assumptions.normalFloor);
+      htm[sleeveIndex] = floorReturn(htmReturn, assumptions.normalFloor);
+      price[sleeveIndex] = priceTerm;
+    }
+    dest.cash[written] = row.short;
+    written += 1;
   }
+}
 
+export function priceTrial(args: {
+  assumptions: Assumptions;
+  mode: "mc" | "scenario";
+  scenario?: ScenarioName;
+  trial: number;
+  factor: number[][] | null;
+}): { byYear: Map<number, YearSlice>; rates: EvolvedRate[] } {
+  const dest: PricedColumns = { mtm: [], htm: [], price: [], cash: [], rates: [] };
+  fillPricedSchedule(args, dest);
+  const byYear = new Map<number, YearSlice>();
+  const rates = dest.rates ?? [];
+  for (let index = 0; index < dest.mtm.length; index++) {
+    const year = rates[index]?.calendarYear ?? FIRST_PROJECTION_YEAR + index;
+    byYear.set(year, {
+      mtm: dest.mtm[index],
+      htm: dest.htm[index],
+      price: dest.price[index],
+      cashYield: dest.cash[index] ?? 0,
+    });
+  }
   return { byYear, rates };
 }
 
 const priceCache = new WeakMap<Assumptions, Map<string, { byYear: Map<number, YearSlice>; rates: EvolvedRate[] }>>();
+const factorKeys = new WeakMap<number[][], string>();
+
+function factorKeyOf(factor: number[][] | null): string {
+  if (!factor) return "none";
+  const hit = factorKeys.get(factor);
+  if (hit !== undefined) return hit;
+  const key = factor.map((row) => row.join(",")).join(";");
+  factorKeys.set(factor, key);
+  return key;
+}
 
 /** One priced path per assumptions object, scenario, and trial. Mixes and the 2031 range reuse it. */
 export function cachedPriceTrial(args: {
@@ -264,7 +328,7 @@ export function cachedPriceTrial(args: {
     bucket = new Map();
     priceCache.set(args.assumptions, bucket);
   }
-  const factorKey = args.factor ? args.factor.map((row) => row.join(",")).join(";") : "none";
+  const factorKey = factorKeyOf(args.factor);
   const key = `${args.mode}|${args.scenario ?? ""}|${args.trial}|${factorKey}`;
   const hit = bucket.get(key);
   if (hit) return hit;
