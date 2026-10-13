@@ -1,0 +1,5 @@
+ticker,name,sleeve,weight,kind,country,rationale
+GAP,Example gap name,Growth,40,stock,,Example row. Not a holding. Estimators on this name disagree.
+ADR,Example ADR,Growth,25,stock,,Example row. Not a holding. Non-synchronous beta uses Dimson.
+CALM,Example calm name,Growth,20,stock,,Example row. Not a holding.
+ETF,Example equity ETF,Growth,15,etf,,Example row. Not a holding.

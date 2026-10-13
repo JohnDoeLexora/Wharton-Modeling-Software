@@ -14,6 +14,8 @@ export interface NoteStats {
   duration: number | null;
   modeledYield: number | null;
   expense: number | null;
+  /** Measured estimator and window, for example "1-yr daily beta 0.02 (SE 0.15)". */
+  riskCitation?: string;
 }
 
 export interface NoteCount {
@@ -40,6 +42,7 @@ export function buildTradeNote(stats: NoteStats): string {
     stats.duration != null && Number.isFinite(stats.duration) ? `Modeled duration ${stats.duration.toFixed(2)}y.` : "",
     stats.modeledYield != null && Number.isFinite(stats.modeledYield) ? `Modeled yield ${pct(stats.modeledYield)}.` : "",
     stats.expense != null && Number.isFinite(stats.expense) ? `Expense ${pct(stats.expense)}.` : "",
+    stats.riskCitation ? `${stats.riskCitation}.` : "",
     "Assumption, not a forecast. Edit before a Trading Note.",
   ].filter((part) => part !== "");
   let text = parts.join(" ");
