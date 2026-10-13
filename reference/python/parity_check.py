@@ -100,18 +100,48 @@ def ladder_at_one_percent() -> int:
 
 
 def wealth_sample(trials: int, seed: int, mu: list[float], sigma: list[float], weights: list[float]) -> list[float]:
+    return path_wealth(trials, seed, mu, sigma, weights, 0.0, 0, None, 0.0)
+
+
+def path_wealth(
+    trials: int,
+    seed: int,
+    mu: list[float],
+    sigma: list[float],
+    weights: list[float],
+    rho: float,
+    bps: int,
+    crash_year: int | None,
+    crash_shock: float,
+) -> list[float]:
+    """Same year step as src/core/yearStep.ts. Identity correlation and zero cost match wealth_sample."""
+    scale = math.sqrt(max(0.0, 1.0 - rho * rho))
+    rate = 0.0 if bps <= 0 else bps / 10_000.0
     out: list[float] = []
     for trial in range(trials):
         balances = [0.0, 0.0]
         wealth_2033 = 0.0
         for year in range(2027, 2043):
-            contribution = 300_000 if year == 2027 else 150_000 if year == 2028 else 0
-            total = sum(balances) + contribution
+            contribution = 300_000.0 if year == 2027 else 150_000.0 if year == 2028 else 0.0
+            existing = balances[0] + balances[1]
+            drifted = [balance / existing for balance in balances] if existing > 0 else list(weights)
+            contribution_cost = 0.0 if contribution <= 0 else min(contribution, contribution * rate)
+            net = contribution - contribution_cost
+            fraction = 0.0
+            if existing > 0 and rate > 0:
+                l1 = abs(weights[0] - drifted[0]) + abs(weights[1] - drifted[1])
+                fraction = min(1.0, 0.5 * l1 * rate)
+            total = existing * (1.0 - fraction) + net
             balances = [total * weight for weight in weights]
             if year == 2033:
-                wealth_2033 = sum(balances)
+                wealth_2033 = balances[0] + balances[1]
             if year < 2042:
-                returns = [simple_return(mu[i], sigma[i], standard_normal(seed, 1, trial, year, i)) for i in range(2)]
+                z0 = standard_normal(seed, 1, trial, year, 0)
+                z1 = standard_normal(seed, 1, trial, year, 1)
+                shocks = [z0, rho * z0 + scale * z1]
+                returns = [simple_return(mu[i], sigma[i], shocks[i]) for i in range(2)]
+                if crash_year == year and crash_shock != 0.0:
+                    returns = [value + crash_shock for value in returns]
                 balances = [balance * (1.0 + returns[i]) for i, balance in enumerate(balances)]
         out.append(wealth_2033)
     return out
@@ -182,7 +212,34 @@ def main() -> None:
         if abs(py - ts) > band:
             fail(f"{label} python {py} ts {ts} band {band}")
     print(f"python agrees: P(funded)={funded:.4f} p5={p5:.2f} p50={p50:.2f} se={se:.4f}")
+    check_path()
     check_risk()
+
+
+def check_path() -> None:
+    path_file = pathlib.Path("/tmp/gao-parity-path.json")
+    if not path_file.exists():
+        fail("missing /tmp/gao-parity-path.json — run scripts/parity.ts first")
+    books = json.loads(path_file.read_text())
+    for book in books:
+        got = path_wealth(
+            int(book["trials"]),
+            int(book["seed"]),
+            book["mu"],
+            book["sigma"],
+            book["weights"],
+            float(book["rho"]),
+            int(book["bps"]),
+            book["crashYear"],
+            float(book["crashShock"]),
+        )
+        expected = book["wealth"]
+        if len(got) != len(expected):
+            fail(f"{book['name']} length {len(got)} vs {len(expected)}")
+        worst = max(abs(py - float(ts)) for py, ts in zip(got, expected))
+        if worst > 1e-6:
+            fail(f"{book['name']} pathwise gap {worst}")
+        print(f"pathwise {book['name']} max abs {worst:.3e} over {len(got)} trials")
 
 
 def check_risk() -> None:

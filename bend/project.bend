@@ -194,3 +194,29 @@ def show_row(r: Row) -> String:
   match r:
     case Row{+year, +index, +contribution, +wealth}:
       U32.show(year) ++ " " ++ U32.show(index) ++ " " ++ U32.show(contribution) ++ " " ++ U32.show(wealth)
+
+# One-way turnover in whole dollars for a two-sleeve book whose policy weight is one half.
+# |2·growth − total| · bps / 20000 equals 0.5 · L1 · wealth · bps/10000.
+# project() is unchanged. These helpers are the cost and crash laws.
+def abs_diff_go(+a: U32, +b: U32, cmp: Bool) -> U32:
+  match cmp:
+    case True{}:
+      (a - b : U32)
+    case False{}:
+      (b - a : U32)
+
+def abs_diff(+a: U32, +b: U32) -> U32:
+  abs_diff_go(a, b, U32.is_ge(a, b))
+
+def turnover_cost(+growth: U32, +funding: U32, +bps: U32) -> U32:
+  +total = (growth + funding : U32)
+  +twice = (growth + growth : U32)
+  Fix.muldiv(abs_diff(twice, total), bps, 20000)
+
+# Loss ppm is the magnitude of a negative simple-return shock. 330000 ppm is −33%.
+def crashed_growth(+balance: U32, +loss_ppm: U32) -> U32:
+  Fix.muldiv(balance, (Fix.unit() - loss_ppm : U32), Fix.unit())
+
+# A bond earns its carry. The crash shock is not applied.
+def bond_ignores_crash(+balance: U32, +carry_ppm: U32) -> U32:
+  Fix.muldiv(balance, (Fix.unit() + carry_ppm : U32), Fix.unit())

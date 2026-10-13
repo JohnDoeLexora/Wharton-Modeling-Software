@@ -62,7 +62,7 @@ assumptions.returnModel = "lognormal";
 assumptions.rebalance = "annual";
 assumptions.inflation = 0;
 assumptions.correlationStress = 0;
-assumptions.costs = { transactionCostBps: 0 };
+assumptions.costs = { transactionCostBps: 0, gainTaxRate: 0, account: "untaxed" };
 assumptions.mixes = [];
 assumptions.sleeves = assumptions.sleeves.map((sleeve, index) =>
   index === 0 ? { ...sleeve, mu: 0.06, sigma: 0.15, base: 0.06, bull: 0.06, bear: 0.06 } : { ...sleeve, mu: 0.02, sigma: 0.04, base: 0.02, bull: 0.02, bear: 0.02 },
@@ -98,6 +98,62 @@ const outPath = resolve("/tmp/gao-parity-ts.json");
 writeFileSync(outPath, JSON.stringify(payload));
 console.log(
   `mc ts P(funded)=${payload.funded} p5=${payload.p5} p50=${payload.p50} se=${payload.se} trials=${payload.trials}`,
+);
+
+const costBook = zeroAssumptions();
+costBook.trials = 200;
+costBook.seed = 42;
+costBook.returnModel = "lognormal";
+costBook.rebalance = "annual";
+costBook.inflation = 0;
+costBook.correlationStress = 0;
+costBook.sampling = "pseudo";
+costBook.costs = { transactionCostBps: 50, gainTaxRate: 0, account: "untaxed" };
+costBook.crashYear = 2032;
+costBook.crashShock = -0.4;
+costBook.mixes = [];
+costBook.sleeves = assumptions.sleeves.map((sleeve) => ({ ...sleeve }));
+costBook.glide = assumptions.glide.map((knot) => ({ ...knot, weights: knot.weights.slice() }));
+costBook.correlation = [
+  [1, 0.1],
+  [0.1, 1],
+];
+const costRun = runModel(costBook);
+if (!costRun.monteCarlo || costRun.errors.length > 0) {
+  console.error(costRun.errors.join("\n") || "cost path did not run");
+  process.exit(1);
+}
+const pathBooks = [
+  {
+    name: "zero_cost",
+    trials: output.monteCarlo.trials,
+    seed: output.masterSeed,
+    mu: payload.mu,
+    sigma: payload.sigma,
+    weights: payload.weights,
+    rho: 0,
+    bps: 0,
+    crashYear: null,
+    crashShock: 0,
+    wealth: output.monteCarlo.wealth2033,
+  },
+  {
+    name: "cost_crash",
+    trials: costRun.monteCarlo.trials,
+    seed: costRun.masterSeed,
+    mu: [0.06, 0.02],
+    sigma: [0.15, 0.04],
+    weights: [0.6, 0.4],
+    rho: 0.1,
+    bps: 50,
+    crashYear: 2032,
+    crashShock: -0.4,
+    wealth: costRun.monteCarlo.wealth2033,
+  },
+];
+writeFileSync(resolve("/tmp/gao-parity-path.json"), JSON.stringify(pathBooks));
+console.log(
+  `pathwise fixtures zero_cost[0]=${pathBooks[0].wealth[0]} cost_crash[0]=${pathBooks[1].wealth[0]}`,
 );
 
 const series = paritySeries();

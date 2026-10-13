@@ -147,3 +147,7 @@ def main() -> IO(Unit):
     IO.print("vasicek_beta " ++ U32.show(Risk.golden_vasicek()))
     IO.print("jump_var " ++ U32.show(Risk.golden_jump()))
     IO.print("cov_det " ++ U32.show(Risk.golden_det()))
+    IO.print("turnover_cost_50 " ++ U32.show(Proj.turnover_cost(107000, 103000, 50)))
+    IO.print("turnover_cost_full " ++ U32.show(Proj.turnover_cost(107000, 103000, 10000)))
+    IO.print("crash_growth " ++ U32.show(Proj.crashed_growth(100000, 330000)))
+    IO.print("bond_crash " ++ U32.show(Proj.bond_ignores_crash(100000, 30000)))

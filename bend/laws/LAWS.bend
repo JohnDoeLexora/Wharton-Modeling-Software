@@ -986,3 +986,28 @@ law shrunk_covariance_det_is_7729:
 
 def shrunk_covariance_det_is_7729():
   {==}
+
+# 107000 and 103000 against a half policy. 50 bps removes 10 dollars. A 100% cost removes 2000.
+law turnover_cost_at_50_bps:
+  {Proj.turnover_cost(107000, 103000, 50) == 10 : U32}
+
+def turnover_cost_at_50_bps():
+  {==}
+
+law turnover_cost_at_full_rate:
+  {Proj.turnover_cost(107000, 103000, 10000) == 2000 : U32}
+
+def turnover_cost_at_full_rate():
+  {==}
+
+law crash_cuts_growth_by_33_percent:
+  {Proj.crashed_growth(100000, 330000) == 67000 : U32}
+
+def crash_cuts_growth_by_33_percent():
+  {==}
+
+law bond_earns_carry_and_ignores_crash:
+  {Proj.bond_ignores_crash(100000, 30000) == 103000 : U32}
+
+def bond_earns_carry_and_ignores_crash():
+  {==}

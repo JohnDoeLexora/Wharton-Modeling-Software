@@ -171,6 +171,10 @@ export function goldenLines(): GoldenLine[] {
     ["vasicek_beta", goldenVasicek()],
     ["jump_var", goldenJumpVar()],
     ["cov_det", shrunk.det],
+    ["turnover_cost_50", 10],
+    ["turnover_cost_full", 2_000],
+    ["crash_growth", 67_000],
+    ["bond_crash", 103_000],
   ];
   return lines.map(([key, value]) => ({ key, value: String(value) }));
 }
