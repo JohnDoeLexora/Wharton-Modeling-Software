@@ -22,7 +22,7 @@ Priced mode, five mixes, 20,000 trials, seed 42. The version 7 note recorded 26,
 - Coverage on the finance core (`npm run coverage`) was 98.70% lines, 84.04% branches, and 99.28% functions. The gate is 90% lines, 75% branches, and 85% functions.
 - `npm run paper` wrote `docs/METHODS.pdf`. `scripts/export-example.ts` wrote `examples/INTERNAL - example-book.html` and the matching PDF from `examples/example-holdings.csv`. That sheet is an export of the example file.
 - Stryker on attribution, the ladder, the frontiers, and the kernel scored 41.10% (covered 42.19%): 524 killed, 46 timed out, 781 survived, 36 with no coverage, 0 errors. By file: attribution 52.71%, frontier 36.06%, kernel 56.94%, ladder 17.79%. The run took 17 minutes 29 seconds. The report is `docs/mutation-score.json`. `npm run mutate` does not fail the build on that score.
-- The Actions workflow is `ci/verify.yml` (the same file the job would use at `.github/workflows/ci.yml`). Pushing a file under `.github/workflows/` was rejected: the OAuth token has `repo` scope and not `workflow` scope. `gh run list` on `da15086` is empty. A token with the workflow scope can move `ci/verify.yml` into `.github/workflows/ci.yml` and push it.
+- The Actions workflow is `ci/verify.yml` (the same file the job would use at `.github/workflows/ci.yml`). Pushing a file under `.github/workflows/` was rejected: the OAuth token has `repo` scope and not `workflow` scope. `gh run list --branch main` is empty because origin has no workflow file. A token with the workflow scope can move `ci/verify.yml` into `.github/workflows/ci.yml` and push it.
 
 ## What changed in V7
 
