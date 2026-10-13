@@ -365,6 +365,21 @@ pre.method-note {
 }
 .foot a { color: var(--teal); }
 
+.spark { margin: 0.35rem 0 0.6rem; min-width: 0; }
+.spark figcaption { color: var(--muted); font-size: 0.82rem; }
+.spark svg { width: 100%; max-width: 28rem; height: auto; color: var(--teal); display: block; }
+.heat { font-variant-numeric: tabular-nums; text-align: right; }
+.alert {
+  background: var(--bad-soft);
+  border: 1px solid #e3b2a8;
+  color: #6d2424;
+  padding: 0.7rem 0.9rem;
+  border-radius: 6px;
+}
+.fine { color: var(--muted); font-size: 0.9rem; }
+#risk-panel label { display: block; }
+#risk-trade-note { width: 100%; margin-top: 0.3rem; }
+
 @media (max-width: 720px) {
   body { background: var(--paper); }
   .top, .banner, .status-line, .tabs, main, .foot { margin-left: 0; }

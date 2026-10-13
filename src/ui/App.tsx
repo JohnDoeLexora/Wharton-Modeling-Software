@@ -5,6 +5,7 @@ import { AssumptionsPanel } from "./AssumptionsPanel";
 import { CurvePanel } from "./CurvePanel";
 import { InstrumentPanel } from "./InstrumentPanel";
 import { TrackingPanel } from "./TrackingPanel";
+import { RiskPanel } from "./RiskPanel";
 import { ComparePanel } from "./ComparePanel";
 import { DashboardPanel } from "./DashboardPanel";
 import { ExportPanel } from "./ExportPanel";
@@ -30,6 +31,7 @@ const TABS = [
   ["curve", "Curve"],
   ["instruments", "Instruments"],
   ["tracking", "Tracking"],
+  ["risk", "Risk"],
   ["facility", "Facility & range"],
   ["ledger", "Run ledger"],
   ["research", "Research"],
@@ -118,6 +120,7 @@ function Shell() {
         {tab === "curve" ? <CurvePanel /> : null}
         {tab === "instruments" ? <InstrumentPanel /> : null}
         {tab === "tracking" ? <TrackingPanel /> : null}
+        {tab === "risk" ? <RiskPanel /> : null}
         {tab === "facility" ? <FacilityPanel /> : null}
         {tab === "ledger" ? <LedgerPanel /> : null}
         {tab === "research" ? <ResearchPanel /> : null}
