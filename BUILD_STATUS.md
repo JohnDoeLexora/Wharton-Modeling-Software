@@ -1,8 +1,26 @@
 # Build status
 
-Schema 3 of the TypeScript workspace is the interactive toolkit (`npm run dev`), now at app version 8.0.0. The Bend 2 package in `bend/` is the reference for the locked arithmetic. Neither engine contains a recommended portfolio, reserve, facility contribution, or co-sponsor range. The holdings editor starts empty. The Risk tab starts empty until a history is imported. Case cash flows are unchanged: beginning-of-2033 wealth on the zero-return path is $450,000, and the 0% ladder is $500,000.
+Schema 3 of the TypeScript workspace is the interactive toolkit (`npm run dev`), now at app version 9.0.0. The Bend 2 package in `bend/` is the reference for the locked arithmetic. Neither engine contains a recommended portfolio, reserve, facility contribution, or co-sponsor range. The holdings editor starts empty. The Risk tab starts empty until a history is imported. Case cash flows are unchanged: beginning-of-2033 wealth on the zero-return path is $450,000, and the 0% ladder is $500,000.
 
 Checked on 2026-10-13.
+
+## What changed in V9
+
+Jumps in the portfolio engine are a compensated compound Poisson. A pure Student-t(4) history estimates an intensity near zero. An injected Poisson intensity is recovered within two standard errors. The expected annual return does not move when the jump parameters change. Names with at least three years of history and no detected gap stay at intensity zero (CALM, ADR, and ETF on the synthetic file are source `name`, not a class fallback). GAP stays a name fit. The Bend identity `Names.golden_jump() == 40000` and `jump_var == 18000` are unchanged. The float engine's scenario jump contribution is zero. Those two facts are different objects. `docs/AUDIT_V9.md` records the file and line.
+
+The comparison harness uses residual monthly volatility and the caller's reserve. On the synthetic book, 200 trials, seed 42, teaching assumptions (market μ 0, hurdle $439,305.45), the paired difference of P(funded), new minus old, is 0.010 with paired SE 0.027. Mean 2033 wealth differs by $4,587 with paired SE $11,483. Sample levels are 0.460 (old) and 0.470 (new). The version 6 note of 0.335 versus 0.000 was the uncompensated jump drift on an undiscounted reserve.
+
+The teaching book still has a flat zero curve and `discountMode: trial_curve` with `discountYield` 0.03. The reserve on every trial is now $439,305.45, and the run warns that there is no stochastic curve. On 1,000 trials, seed 42: P(funded) 0.924, mean facility contribution $77,428.46 (the teaching rule retains half the residual), mean of wealth minus reserve $152,388.71, median wealth $582,525.51. Trial 0 wealth is $661,189.07. Trial 3 is $503,352.77. The base scenario is $593,470.93. Those three wealth figures match version 5 commit `3b21322` and version 7 commit `99174a4`. $505,241 and $547,835 do not reproduce.
+
+Book ex-ante vol on the synthetic example is 30.7%. Measured beta is 0.46 on mixed windows. GAP one-year daily vol is still 84.9% against monthly 39.2% (ratio 2.17), and its one-year daily beta is still −0.41 (SE 0.54). Kupiec 95% on the new forecast passes for ADR (p 0.85) and CALM (p 0.56) and does not pass for GAP (p 0.01) or ETF (p 0.00). That is a coverage count, not a recommendation.
+
+A walk-forward of the p10–p90 two-year band on Ken French market-plus-bill returns, full calendar years 1927–2025, covers 81 of 93 origins (87.1%). The stated band is 80%. `docs/VALIDATION_V9.md` has the method. The Curve lab plots standard error against N for three samplers and can stop a separate sample. The assumptions form still uses the trial count you type. `npm run bench` on this box timed 5,000 parametric teaching trials at 580 ms, under an 8 second budget, and the synchronous chart plus effective-sample-size work at 2 ms, under 100 ms. It is not part of `npm run verify`.
+
+### Verification on 2026-10-13 (V9)
+
+- `npm run verify` exited 0. That is 164 Vitest tests, `npm run build`, `bend bend/laws/LAWS.bend --verdict` and `bend bend/laws/FAN.bend --verdict` each printing `ALL PROOFS CHECK`, parity (71 deterministic keys; pathwise gaps 4.657e-10 and 2.328e-10; `jump_var` 18000), `parity-full` (20 golden books and 5 rich books, largest relative gap 4.61e-16), `verify-stats`, and a headless walkthrough of every tab at 1280×900. The walk checked an empty or error status on every screen, opened the command palette, loaded the teaching example, and showed the no-stochastic-curve warning. The page does not contain “we recommend”. Visual snapshots of Decision, Curve, and Risk matched `e2e/walkthrough.spec.ts-snapshots/`.
+- `npm run reproduce -- examples/v9-demo-bundle.json` reproduced 200 trial wealth values with a largest absolute gap of 0.
+- The example tear sheet `examples/INTERNAL - example-book.html` was not regenerated. Its zero-yield reserve identity stays $500,000.
 
 ## What changed in V8
 
@@ -12,7 +30,7 @@ Citations recompute vol, beta and its standard error, correlation, max drawdown,
 
 ### Headline numbers
 
-Teaching-book headlines from version 7 are unchanged: zero-cost base path $593,470.93 at beginning of 2033, $590,343.95 at 50 bps, $0 at 10,000 bps; trial-curve reserve $500,000, P(funded) 0.779, mean gift $91,694; fixed 3% ladder $439,305.45, P(funded) 0.924, mean gift $152,389; median wealth $582,525.51.
+Teaching-book headlines recorded at version 8, before the version 9 reserve correction: zero-cost base path $593,470.93 at beginning of 2033, $590,343.95 at 50 bps, $0 at 10,000 bps; trial-curve reserve was reported as $500,000, P(funded) 0.779, mean gift $91,694; fixed 3% ladder $439,305.45, P(funded) 0.924, mean of wealth minus reserve $152,389; median wealth $582,525.51. Version 9 uses the 3% hurdle for that trial-curve book. Nominal wealth is unchanged. See the version 9 section.
 
 Priced mode, five mixes, 20,000 trials, seed 42. The version 7 note recorded 26,209 ms after the shared schedule (282,021 ms before it) and a median of $537,384.48 on that timing sample. The locked workload in `scripts/perf.ts` (an equity index and T-bills) finished in 1,805 ms on 2026-10-13. Median wealth is $580,913.4554481686. `npm run perf` fails if that median moves by more than 1e-6 or if the run exceeds 3 seconds. Errors were empty. Kernel overlays were off.
 

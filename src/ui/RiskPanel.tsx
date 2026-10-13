@@ -307,7 +307,8 @@ export function RiskView({
             {card.beta ? <p className="fine">{card.beta.vasicek.priorNote}</p> : null}
             <p>
               Jumps: source {card.jumps.source}
-              {card.jumps.fallbackClass ? ` (${card.jumps.fallbackClass})` : ""}. Intensity {num(card.jumps.lambdaAnnual)} per year. Gaps {card.jumps.gaps}. Bernoulli size {num(card.jumps.size)}. Diffusion vol {pct(Math.sqrt(Math.max(0, card.jumps.diffusionVariance)))}. Double-exponential up rate {num(card.jumps.upRate)}, down rate {num(card.jumps.downRate)}.
+              {card.jumps.fallbackClass ? ` (${card.jumps.fallbackClass})` : ""}. Intensity {num(card.jumps.lambdaAnnual)} per year. Gaps {card.jumps.gaps}. Mean jump size {num(card.jumps.size)}. Diffusion vol {pct(Math.sqrt(Math.max(0, card.jumps.diffusionVariance)))}. {card.jumps.volFlag ? `${card.jumps.volFlag} ` : ""}
+              Double-exponential up rate {num(card.jumps.upRate)}, down rate {num(card.jumps.downRate)}.
             </p>
             <p className="fine">
               Student-t df {card.tails.df} ({card.tails.source}). {card.tails.note}
@@ -342,7 +343,7 @@ export function RiskView({
                 <p className="metric-value">{pct(report.book.vol)}</p>
               </article>
               <article>
-                <h4>Measured beta</h4>
+                <h4>Measured beta{report.book.betaWindow ? ` (${report.book.betaWindow})` : ""}</h4>
                 <p className="metric-value">{num(report.book.betaRaw)}</p>
               </article>
               <article>
@@ -372,7 +373,7 @@ export function RiskView({
                     <th>Marginal</th>
                     <th>Component</th>
                     <th>Share</th>
-                    <th>Measured beta</th>
+                    <th>Measured beta{report.book.betaWindow ? ` (${report.book.betaWindow})` : ""}</th>
                     <th>Vasicek (not measured)</th>
                     <th>Gap stress</th>
                   </tr>
@@ -385,7 +386,10 @@ export function RiskView({
                       <td>{pct(row.marginal)}</td>
                       <td>{pct(row.component)}</td>
                       <td>{pct(row.percent)}</td>
-                      <td>{num(row.betaRaw)}</td>
+                      <td>
+                        {num(row.betaRaw)}
+                        {row.betaWindow ? <span className="fine"> {row.betaWindow}</span> : null}
+                      </td>
                       <td>{num(row.betaShrunk)}</td>
                       <td>{pct(row.stress)}</td>
                     </tr>
@@ -474,12 +478,15 @@ export function RiskView({
           <>
             <h4>Old versus new on the case model</h4>
             <p className="fine">{comparison.note}</p>
+            <p>
+              Paired difference (new − old): P(funded) {num(comparison.paired.fundedDiff, 3)} (SE {num(comparison.paired.fundedSe, 3)}). Wealth {usd(comparison.paired.wealthDiff)} (SE {usd(comparison.paired.wealthSe)}).
+            </p>
             <p className="fine">
               Locked cash flows: {usd(comparison.cash2027)} in 2027, {usd(comparison.cash2028)} in 2028, payment {usd(comparison.payment)}. Seed {comparison.seed}. Trials {comparison.trials}.
             </p>
             <div className="table-wrap">
               <table>
-                <caption>Reserve P(funded), p5 2033 wealth, and gift percentiles</caption>
+                <caption>Sample levels. The paired difference above is the comparison, not these levels.</caption>
                 <thead>
                   <tr>
                     <th>Method</th>
@@ -534,7 +541,7 @@ function draftNote(report: RiskReport | null, ticker: string): string {
 }
 
 export function RiskPanel() {
-  const { update } = useStore();
+  const { update, assumptions } = useStore();
   const [report, setReport] = useState<RiskReport | null>(null);
   const [comparison, setComparison] = useState<PairedComparison | null>(null);
   const [prices, setPrices] = useState("");
@@ -580,7 +587,7 @@ export function RiskPanel() {
         if (!report) return;
         setBusy("Running the paired sample on the locked cash flows…");
         window.setTimeout(() => {
-          setComparison(compareMethods(report, 200, 42));
+          setComparison(compareMethods(report, 200, assumptions.seed, assumptions));
           setBusy("");
         }, 30);
       }}

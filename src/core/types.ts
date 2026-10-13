@@ -226,6 +226,11 @@ export interface BasketName {
   studentDf: number;
   jumpProb: number;
   jumpMean: number;
+  /**
+   * Annual Poisson intensity. When set, the engine draws N ~ Poisson(λ) and
+   * subtracts λ × jumpMean. When omitted, λ = −log(1 − jumpProb).
+   */
+  jumpLambda?: number;
   fxSigma: number;
   geoJumpProb: number;
   geoJumpMean: number;
@@ -379,6 +384,13 @@ export interface Assumptions {
    * canonical year step is unchanged. MODEL_SPEC §7.
    */
   kernel?: KernelFlags;
+  /**
+   * Extra diagnostics. Omitted means they stay off, so a normal run does not
+   * spend time on the Sobol-versus-pseudo moment comparison.
+   */
+  diagnostics?: {
+    samplerComparison?: boolean;
+  };
 }
 
 export interface YearPoint {
@@ -606,6 +618,13 @@ export interface RiskMetrics {
     standardErrorMaxDrawdown: number | null;
     standardErrorSharpe: number | null;
     standardErrorReserve: number | null;
+    /** Initial-positive-sequence effective sample size of the trial-level series behind each headline. */
+    effectiveSamples: {
+      meanWealth: number;
+      funded: number;
+      drawdown: number;
+      sharpe: number;
+    };
     note: string;
   };
   /** Average unfloored price term across trials and years. Near zero when duration is near zero. */
@@ -693,6 +712,8 @@ export interface MixResult {
 export interface ModelOutput {
   disclaimer: string;
   errors: string[];
+  /** Non-halting notes. A degenerate trial curve is one of them. */
+  warnings: string[];
   schemaVersion: 3;
   /** Normalized master seed. Stream ids are documented on `streams`. */
   masterSeed: number;

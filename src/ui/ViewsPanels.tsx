@@ -2,6 +2,10 @@ import { useStore } from "../state";
 import { LineChart } from "./Chart";
 import { pct, usd } from "./format";
 
+function numEss(value: number): string {
+  return Number.isFinite(value) ? value.toFixed(0) : "—";
+}
+
 export function MetricsStrip() {
   const { output } = useStore();
   const metrics = output.metrics;
@@ -61,6 +65,7 @@ export function MetricsStrip() {
       <p className="muted">
         Counts inside this seeded sample. A percentile is a rank, not a market probability. Standard error of P(funded):{" "}
         {metrics.convergence.standardErrorFunded === null ? "—" : metrics.convergence.standardErrorFunded.toFixed(4)}.
+        {" "}Effective sample size: mean wealth {numEss(metrics.convergence.effectiveSamples.meanWealth)}, P(funded) {numEss(metrics.convergence.effectiveSamples.funded)}, drawdown {numEss(metrics.convergence.effectiveSamples.drawdown)}, Sharpe {numEss(metrics.convergence.effectiveSamples.sharpe)}.
       </p>
       <div className="metric-strip">
         {cards.map((card) => (

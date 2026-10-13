@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>INTERNAL - v9.0.0 release notes</title>
+  <style>
+    body { font-family: Georgia, serif; max-width: 42rem; margin: 2rem auto; color: #1c1915; background: #f3efe4; line-height: 1.45; }
+    h1 { font-size: 1.6rem; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { border-bottom: 1px solid #ddd4c3; text-align: left; padding: 0.3rem 0.4rem; }
+    .note { color: #5e584e; }
+  </style>
+</head>
+<body>
+  <p>INTERNAL</p>
+  <h1>v9.0.0 release notes</h1>
+  <p class="note">Exploratory toolkit. This sheet is not a portfolio, a reserve, or a facility gift. Case cash flows stay locked. WInS capital stays $300,000 and does not enter the projection.</p>
+  <h2>What changed</h2>
+  <ul>
+    <li>Compensated compound-Poisson jumps. No class fallback after three quiet years.</li>
+    <li>Comparison is a paired difference with a paired standard error. The caller's reserve and market drift are kept.</li>
+    <li>A flat trial-curve reserve uses the stated discount yield and warns. Teaching hurdle $439,305.45.</li>
+    <li>ACT/ACT Treasuries, 30/360 corporates, negative accrued interest inside an ex-coupon window.</li>
+    <li>Curve lab: standard error versus N for pseudo-random, antithetic, and Sobol draws, plus a target-SE stop that does not rewrite the form.</li>
+    <li>Effective sample size on mean wealth, P(funded), drawdown, and Sharpe.</li>
+  </ul>
+  <h2>Teaching sample, 1,000 trials, seed 42</h2>
+  <table>
+    <caption>Counts in this seed. Not a forecast.</caption>
+    <tbody>
+      <tr><th>Base 2033 wealth, 0 bps</th><td>$593,470.93</td></tr>
+      <tr><th>Trial 0 / trial 3</th><td>$661,189.07 / $503,352.77</td></tr>
+      <tr><th>Reserve</th><td>$439,305.45</td></tr>
+      <tr><th>P(funded)</th><td>0.924</td></tr>
+      <tr><th>Median wealth</th><td>$582,525.51</td></tr>
+      <tr><th>Mean facility contribution</th><td>$77,428.46</td></tr>
+    </tbody>
+  </table>
+  <p class="note">Reproduce with <code>npm run reproduce -- examples/v9-demo-bundle.json</code>. The audit is <code>docs/AUDIT_V9.md</code>. The band check is <code>docs/VALIDATION_V9.md</code>.</p>
+</body>
+</html>

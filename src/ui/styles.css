@@ -35,6 +35,13 @@ body {
 }
 button, input, select, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; }
+button:focus-visible, a:focus-visible, select:focus-visible, textarea:focus-visible, input:focus-visible {
+  outline: 3px solid var(--teal);
+  outline-offset: 2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  button, .tabs button { transition: none; }
+}
 h1, h2, h3, h4 { font-family: var(--serif); font-weight: 600; letter-spacing: -0.02em; }
 h4 { font-size: 1rem; margin: 1rem 0 0.3rem; }
 h1 { font-size: 2.1rem; line-height: 1.1; margin: 0.1rem 0; }
@@ -376,6 +383,15 @@ pre.method-note {
   padding: 0.7rem 0.9rem;
   border-radius: 6px;
 }
+.alert.warn {
+  background: var(--amber-soft);
+  border-color: var(--amber);
+  color: #5c3b12;
+}
+.screen-note {
+  margin: 0 0 0.6rem;
+  color: var(--ink);
+}
 .fine { color: var(--muted); font-size: 0.9rem; }
 #risk-panel label { display: block; }
 #risk-trade-note { width: 100%; margin-top: 0.3rem; }
@@ -481,6 +497,8 @@ html[data-theme="dark"] {
 }
 html[data-theme="dark"] body { background: var(--paper); }
 html[data-theme="dark"] .tabs button[aria-selected="true"] { background: var(--navy); color: #1a1916; }
+html[data-theme="dark"] .alert { color: #f6d2d2; border-color: #8d4a4a; }
+html[data-theme="dark"] .alert.warn { color: #f6e7c4; }
 
 @media print {
   .tabs, .palette-backdrop, .tour, .skip, .progress, .chart-downloads, .row-actions { display: none !important; }

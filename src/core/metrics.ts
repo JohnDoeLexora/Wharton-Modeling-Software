@@ -145,6 +145,7 @@ export function emptyMetrics(): RiskMetrics {
       standardErrorMaxDrawdown: null,
       standardErrorSharpe: null,
       standardErrorReserve: null,
+      effectiveSamples: { meanWealth: Number.NaN, funded: Number.NaN, drawdown: Number.NaN, sharpe: Number.NaN },
       note: CONVERGENCE_NOTE,
     },
     sleeveMtm: [],

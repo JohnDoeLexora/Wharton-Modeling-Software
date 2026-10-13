@@ -43,6 +43,8 @@ export interface ModelProposal {
   studentDf: number;
   jumpProb: number;
   jumpMean: number;
+  /** Annual Poisson intensity handed to the engine. The mean is one jump, not the aggregate. */
+  jumpLambda: number;
   sectorBeta: number;
   marketSigma: number;
 }
@@ -113,7 +115,7 @@ function proposal(vol: VolCard, beta: BetaCard | null, jumps: JumpFit, tails: Ta
   const raw = beta?.vasicek.beta ?? 1;
   const measured = beta?.preferred;
   const market = Number.isFinite(marketSigma) ? marketSigma : 0;
-  const jumpSecond = jumps.prob * jumps.size * jumps.size;
+  const jumpSecond = Math.max(0, jumps.lambdaAnnual) * Math.max(0, jumps.meanSquare);
   const horizon = Number.isFinite(vol.horizon) ? vol.horizon : vol.realizedDaily;
   const idio2 = Math.max(0, horizon * horizon - raw * raw * market * market - jumpSecond);
   const modelVol = Math.sqrt(raw * raw * market * market + idio2 + jumpSecond);
@@ -127,8 +129,9 @@ function proposal(vol: VolCard, beta: BetaCard | null, jumps: JumpFit, tails: Ta
         : "No market column, so there is no measured beta.",
       idioSigma: Math.sqrt(idio2),
       studentDf: tails.df,
-      jumpProb: jumps.prob,
-      jumpMean: jumps.size,
+      jumpProb: 0,
+      jumpMean: jumps.mean,
+      jumpLambda: Math.max(0, jumps.lambdaAnnual),
       sectorBeta: 0,
       marketSigma: market,
     },
@@ -183,7 +186,13 @@ export function estimateFromSeries(
     };
     const jumps = fitJumps({ series: asset, pool, realizedAnnual: vol.realizedDaily });
     const sectorReturns = peers.flatMap((peer) => peer.returns);
-    const tails = fitTail(asset.returns, sectorReturns, asset.quality.ipoShort);
+    const quietReturns = asset.returns.filter((_, index) => !jumps.isJump[index]);
+    const tailSample = quietReturns.length >= 30 ? quietReturns : asset.returns;
+    const fittedTail = fitTail(tailSample, sectorReturns, asset.quality.ipoShort);
+    const tails =
+      quietReturns.length >= 30 && quietReturns.length < asset.returns.length
+        ? { ...fittedTail, note: `${fittedTail.note} Jump days were removed before the fit.` }
+        : fittedTail;
     const benchmark = asset.benchmark ? series.find((row) => row.ticker === asset.benchmark) ?? market : asset.role === "index" ? market : null;
     const fund = asset.role === "index" || asset.benchmark ? (benchmark ? trackFund(asset, benchmark) : null) : null;
     const built = proposal(vol, beta, jumps, tails, marketSigma);
@@ -194,6 +203,7 @@ export function estimateFromSeries(
     if (vol.disagreement) flags.push("estimators disagree");
     if (diverge) flags.push("model vol and recent realized vol diverge");
     if (asset.quality.ipoShort) flags.push("IPO-short history");
+    if (jumps.volFlag) flags.push(jumps.volFlag);
     if (jumps.source === "class-fallback") flags.push(`jump class fallback: ${jumps.fallbackClass}`);
     if (jumps.source === "sector-pool") flags.push("jumps pooled from the sector");
     if (tails.source === "sector-pool") flags.push("tail pooled from the sector");
@@ -261,6 +271,7 @@ export function estimateFromSeries(
       weights: weightsRaw,
       cov,
       betaRaw: ordered.map((card) => card.beta?.preferred.beta ?? NaN),
+      betaWindow: ordered.map((card) => card.beta?.preferred.window ?? ""),
       betaShrunk: ordered.map((card) => card.beta?.vasicek.beta ?? NaN),
       idioVariance: ordered.map((card) => card.idioVariance),
       jumpVariance: ordered.map((card) => card.jumps.jumpVariance),

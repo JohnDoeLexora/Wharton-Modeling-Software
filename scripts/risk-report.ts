@@ -7,6 +7,7 @@
  */
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { teachingAssumptions } from "../src/core/defaults.ts";
 import { estimateFromCsv } from "../src/core/risk/assemble.ts";
 import { compareMethods } from "../src/core/risk/compare.ts";
 import { bookFromCsv } from "../src/core/risk/fixture.ts";
@@ -17,7 +18,7 @@ const bookPath = process.argv[3] ?? "examples/risk-book.csv";
 const trials = Number(process.argv[4] ?? 200);
 
 const report = estimateFromCsv(readFileSync(pricesPath, "utf8"), bookFromCsv(readFileSync(bookPath, "utf8")));
-const comparison = compareMethods(report, trials, 42);
+const comparison = compareMethods(report, trials, 42, teachingAssumptions());
 const markdown = reportMarkdown(report, comparison);
 mkdirSync("out", { recursive: true });
 writeFileSync(resolve("out/risk-report.md"), markdown);

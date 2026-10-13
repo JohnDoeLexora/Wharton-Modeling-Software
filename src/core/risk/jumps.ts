@@ -1,14 +1,24 @@
 /**
  * Per-name jump intensity and size.
- * A gap is a session with |return| > k · σ_EWMA. An earnings flag lowers the multiple to 2.
- * The annual model is a compound Poisson. The simulation engine draws one Bernoulli jump per year,
- * moment-matched to that Poisson. Fixed etf/large/small/moon classes are a fallback only.
+ * Jumps are days whose GARCH residual (EWMA if GARCH does not converge) exceeds a
+ * Student-t quantile set for a small false-positive rate. The annual model is a
+ * compensated compound Poisson: N ~ Poisson(λ), sizes iid, α_jump = −λ E[size].
+ * A fixed etf/large/small/moon class is used only for a short history with no pool.
  */
 
 import type { CleanSeries } from "./clean";
-import { ewmaVariance, TRADING_DAYS } from "./vol";
+import { mean, studentPpf } from "./stats";
+import { fitStudentT } from "./tails";
+import { conditionalSigma, seriesKey, TRADING_DAYS, type ConditionalVol } from "./vol";
 
 export const DEFAULT_JUMP_K = 3;
+/** Two-sided false positives per year on ordinary sessions. Pure Student-t noise stays near this rate. */
+export const FALSE_POSITIVES_PER_YEAR = 0.02;
+/** Earnings days use a looser bar, still a Student-t quantile. */
+const EVENT_FALSE_POSITIVES_PER_YEAR = 1;
+const LONG_HISTORY = 3 * TRADING_DAYS;
+const OUTLIER_RATE = 0.005;
+const OUTLIER_SIGMAS = 10;
 
 export interface JumpClass {
   id: "etf" | "large" | "small" | "moon";
@@ -36,9 +46,12 @@ export interface JumpFit {
   meanSquare: number;
   upside: number;
   downside: number;
-  /** Bernoulli probability used by the annual engine. */
+  /**
+   * Left at 0. The annual engine draws a Poisson count of `mean`, not one Bernoulli of `size`.
+   * `bernoulliMatch` is still available for the moment-match identity.
+   */
   prob: number;
-  /** Bernoulli size used by the annual engine. */
+  /** Single-jump mean. Not the aggregate λμ / (1−e^{−λ}). */
   size: number;
   /** λ E[J²], annual. */
   jumpVariance: number;
@@ -52,6 +65,11 @@ export interface JumpFit {
   upRate: number;
   /** Double-exponential rate of the absolute negative gaps. */
   downRate: number;
+  /** True on sessions classified as jumps. Same length as the return series when the fit saw one. */
+  isJump: boolean[];
+  volSource: "garch" | "ewma";
+  /** Set when the standardized residual used EWMA because GARCH did not converge. */
+  volFlag: string | null;
   note: string;
 }
 
@@ -68,13 +86,78 @@ export function doubleExponential(sizes: number[]): { upProb: number; upRate: nu
   };
 }
 
-export function detectGaps(returns: number[], events: boolean[] | null, k = DEFAULT_JUMP_K, lambda = 0.94): boolean[] {
-  const ewma = ewmaVariance(returns, lambda);
-  return returns.map((value, index) => {
-    const sigma = Math.sqrt(Math.max(ewma.variance[index], 1e-12));
-    const multiple = events?.[index] ? Math.min(k, 2) : k;
-    return Math.abs(value) > multiple * sigma;
+interface Detection {
+  mask: boolean[];
+  vol: ConditionalVol;
+}
+
+const detectionCache = new Map<string, Detection>();
+
+function robustScale(values: number[]): { median: number; scale: number } {
+  const sorted = values.filter((value) => Number.isFinite(value)).slice().sort((a, b) => a - b);
+  if (sorted.length === 0) return { median: 0, scale: 1 };
+  const mid = Math.floor(sorted.length / 2);
+  const median = sorted.length % 2 === 1 ? sorted[mid] : 0.5 * (sorted[mid - 1] + sorted[mid]);
+  const abs = sorted.map((value) => Math.abs(value - median)).sort((a, b) => a - b);
+  const mad = abs.length % 2 === 1 ? abs[mid] : 0.5 * (abs[mid - 1] + abs[mid]);
+  return { median, scale: Math.max(1.4826 * mad, 1e-8) };
+}
+
+function eventKey(events: boolean[] | null): string {
+  if (!events) return "0";
+  let hash = 0;
+  for (let i = 0; i < events.length; i++) if (events[i]) hash = (hash * 131 + i + 1) % 1000003;
+  return String(hash);
+}
+
+function classifyJumps(returns: number[], events: boolean[] | null, lambda: number): Detection {
+  const key = `${seriesKey(returns)}|${eventKey(events)}|${lambda}`;
+  const cached = detectionCache.get(key);
+  if (cached) return cached;
+  const vol = conditionalSigma(returns, lambda);
+  const center = mean(returns);
+  const z = returns.map((value, index) => {
+    if (!Number.isFinite(value)) return 0;
+    const sigma = Math.max(vol.sigma[index] ?? 0, 1e-12);
+    return (value - (Number.isFinite(center) ? center : 0)) / sigma;
   });
+  const robust = robustScale(z);
+  let outliers = 0;
+  for (const value of z) if (Math.abs(value - robust.median) > OUTLIER_SIGMAS * robust.scale) outliers += 1;
+  const rate = z.length > 0 ? outliers / z.length : 0;
+  const bulk = rate > OUTLIER_RATE ? z.filter((value) => Math.abs(value - robust.median) <= OUTLIER_SIGMAS * robust.scale) : z;
+  const sample = bulk.length >= 30 ? bulk : z;
+  const fit = fitStudentT(sample);
+  const df = fit?.df ?? 5;
+  const fittedMean = mean(sample);
+  const mu = Number.isFinite(fittedMean) ? fittedMean : 0;
+  const scale = fit && fit.scale > 0 ? fit.scale : robust.scale;
+  const ordinary = Math.min(0.5, FALSE_POSITIVES_PER_YEAR / TRADING_DAYS);
+  const eventTail = Math.min(0.5, EVENT_FALSE_POSITIVES_PER_YEAR / TRADING_DAYS);
+  const cutoff = scale * studentPpf(1 - ordinary / 2, df);
+  const eventCutoff = scale * studentPpf(1 - eventTail / 2, df);
+  const mask = z.map((value, index) => {
+    const bar = events?.[index] ? eventCutoff : cutoff;
+    return Number.isFinite(bar) && Math.abs(value - mu) > bar;
+  });
+  const detection = { mask, vol };
+  detectionCache.set(key, detection);
+  if (detectionCache.size > 48) {
+    const oldest = detectionCache.keys().next().value;
+    if (oldest !== undefined) detectionCache.delete(oldest);
+  }
+  return detection;
+}
+
+/**
+ * Jump days. `k` is retained for callers and is no longer the threshold:
+ * the bar is a Student-t quantile with about 0.02 false positives per year.
+ * `lambda` is the EWMA decay used only when GARCH does not converge.
+ */
+export function detectGaps(returns: number[], events: boolean[] | null, k = DEFAULT_JUMP_K, lambda = 0.94): boolean[] {
+  void k;
+  if (returns.length === 0) return [];
+  return classifyJumps(returns, events, lambda).mask;
 }
 
 function moments(sizes: number[]): { mean: number; meanSquare: number } {
@@ -90,8 +173,8 @@ function moments(sizes: number[]): { mean: number; meanSquare: number } {
 
 /**
  * Match E[J] and, as far as a single Bernoulli can, E[J²].
- * p = 1 − exp(−λ), size = λ μ / p. Variance left unmatched is returned as a shortfall
- * for the idiosyncratic variance, so the jump piece is not silently dropped.
+ * p = 1 − exp(−λ), size = λ μ / p. The portfolio engine does not use this match.
+ * It draws the Poisson count and compensates λμ.
  */
 export function bernoulliMatch(lambdaAnnual: number, mean: number, meanSquare: number): { prob: number; size: number; shortfall: number } {
   if (!(lambdaAnnual > 0) || !(meanSquare > 0)) return { prob: 0, size: 0, shortfall: 0 };
@@ -112,30 +195,53 @@ function annualizeCount(gaps: number, sessions: number): number {
   return (gaps / sessions) * TRADING_DAYS;
 }
 
-function fitFromSizes(sizes: number[], sessions: number, diffusionDaily: number, k: number, source: JumpSource, fallback: JumpClass["id"] | null, note: string): JumpFit {
+function withVol(fit: Omit<JumpFit, "isJump" | "volSource" | "volFlag">, detection: Detection | null, mask: boolean[]): JumpFit {
+  return {
+    ...fit,
+    isJump: mask,
+    volSource: detection?.vol.source ?? "ewma",
+    volFlag: detection?.vol.flag ?? null,
+  };
+}
+
+function fitFromSizes(
+  sizes: number[],
+  sessions: number,
+  diffusionDaily: number,
+  k: number,
+  source: JumpSource,
+  fallback: JumpClass["id"] | null,
+  note: string,
+  detection: Detection | null,
+  mask: boolean[],
+): JumpFit {
   const { mean, meanSquare } = moments(sizes);
   const lambdaAnnual = annualizeCount(sizes.length, sessions);
-  const matched = bernoulliMatch(lambdaAnnual, mean, meanSquare);
   const diffusionVariance = Math.max(0, diffusionDaily) * TRADING_DAYS;
   const jumpVar = Math.max(0, lambdaAnnual) * Math.max(0, meanSquare);
-  return {
-    source,
-    fallbackClass: fallback,
-    k,
-    gaps: sizes.length,
-    lambdaAnnual,
-    mean,
-    meanSquare,
-    upside: sizes.filter((size) => size > 0).length,
-    downside: sizes.filter((size) => size < 0).length,
-    prob: matched.prob,
-    size: matched.size,
-    jumpVariance: jumpVar,
-    diffusionVariance,
-    totalVariance: diffusionVariance + jumpVar,
-    ...doubleExponential(sizes),
-    note,
-  };
+  const volNote = detection?.vol.flag ? ` ${detection.vol.flag}` : "";
+  return withVol(
+    {
+      source,
+      fallbackClass: fallback,
+      k,
+      gaps: sizes.length,
+      lambdaAnnual,
+      mean,
+      meanSquare,
+      upside: sizes.filter((size) => size > 0).length,
+      downside: sizes.filter((size) => size < 0).length,
+      prob: 0,
+      size: mean,
+      jumpVariance: jumpVar,
+      diffusionVariance,
+      totalVariance: diffusionVariance + jumpVar,
+      ...doubleExponential(sizes),
+      note: `${note}${volNote}`,
+    },
+    detection,
+    mask,
+  );
 }
 
 export function fallbackJumpClass(role: string, ipoShort: boolean, realizedAnnual: number): JumpClass["id"] {
@@ -165,6 +271,9 @@ export function classJump(id: JumpClass["id"], diffusionDaily: number, k: number
     diffusionVariance,
     totalVariance: diffusionVariance + jumpVar,
     ...doubleExponential([]),
+    isJump: [],
+    volSource: "ewma",
+    volFlag: null,
     note: `Fallback jump class "${id}" (${(klass.prob * 100).toFixed(0)}%/yr, size ${(klass.mean * 100).toFixed(0)}%). Not fit to this name's gaps.`,
   };
 }
@@ -183,51 +292,83 @@ export function fitJumps(args: {
   forceClass?: JumpClass["id"];
 }): JumpFit {
   const k = args.k ?? DEFAULT_JUMP_K;
-  const gaps = detectGaps(args.series.returns, args.series.events, k);
+  const detection = classifyJumps(args.series.returns, args.series.events, 0.94);
+  const gaps = detection.mask;
   const sizes = args.series.returns.filter((_, index) => gaps[index]);
   const quiet = args.series.returns.filter((_, index) => !gaps[index]);
   const diffusionDaily = quiet.length > 2 ? quiet.reduce((sum, value) => sum + value * value, 0) / (quiet.length - 1) : 0;
-  if (args.forceClass) return classJump(args.forceClass, diffusionDaily, k);
-  if (sizes.length >= 3) {
+  const sessions = args.series.returns.length;
+  if (args.forceClass) {
+    const forced = classJump(args.forceClass, diffusionDaily, k);
+    forced.isJump = gaps;
+    forced.volSource = detection.vol.source;
+    forced.volFlag = detection.vol.flag;
+    return forced;
+  }
+  const long = sessions >= LONG_HISTORY;
+  if (sizes.length >= 3 || (long && sizes.length > 0)) {
     return fitFromSizes(
       sizes,
-      args.series.returns.length,
+      sessions,
       diffusionDaily,
       k,
       "name",
       null,
-      `${sizes.length} gaps with |return| > ${k} conditional standard deviations. Intensity is gaps per year. The annual engine uses one Bernoulli jump matched to the compound-Poisson mean.`,
+      `${sizes.length} jumps on ${detection.vol.source === "garch" ? "GARCH" : "EWMA"} residuals, past a Student-t quantile aimed at ${FALSE_POSITIVES_PER_YEAR} false positives a year. Intensity is jumps per year. The engine draws a compensated compound Poisson of this mean size.`,
+      detection,
+      gaps,
+    );
+  }
+  if (long) {
+    return fitFromSizes(
+      [],
+      sessions,
+      diffusionDaily,
+      k,
+      "name",
+      null,
+      `At least three years of history and no jumps at the Student-t threshold. Intensity is zero. No class fallback.`,
+      detection,
+      gaps,
     );
   }
   const pool = args.pool;
   if (pool && pool.gaps >= 3 && pool.sessions > 0) {
-    const ownWeight = args.series.returns.length;
-    const blendedSessions = ownWeight + pool.sessions;
+    const blendedSessions = sessions + pool.sessions;
     const blendedSizes = [...sizes, ...pool.sizes];
     const lambda = annualizeCount(sizes.length + pool.gaps, blendedSessions);
     const { mean, meanSquare } = moments(blendedSizes);
-    const matched = bernoulliMatch(lambda, mean, meanSquare);
     const diffusionVariance = Math.max(0, diffusionDaily) * TRADING_DAYS;
     const jumpVar = lambda * Math.max(0, meanSquare);
-    return {
-      source: "sector-pool",
-      fallbackClass: null,
-      k,
-      gaps: sizes.length,
-      lambdaAnnual: lambda,
-      mean,
-      meanSquare,
-      upside: blendedSizes.filter((size) => size > 0).length,
-      downside: blendedSizes.filter((size) => size < 0).length,
-      prob: matched.prob,
-      size: matched.size,
-      jumpVariance: jumpVar,
-      diffusionVariance,
-      totalVariance: diffusionVariance + jumpVar,
-      ...doubleExponential(blendedSizes),
-      note: `Short gap history (${sizes.length}). Intensity pools this name with ${pool.gaps} sector gaps. Not a fixed class.`,
-    };
+    const volNote = detection.vol.flag ? ` ${detection.vol.flag}` : "";
+    return withVol(
+      {
+        source: "sector-pool",
+        fallbackClass: null,
+        k,
+        gaps: sizes.length,
+        lambdaAnnual: lambda,
+        mean,
+        meanSquare,
+        upside: blendedSizes.filter((size) => size > 0).length,
+        downside: blendedSizes.filter((size) => size < 0).length,
+        prob: 0,
+        size: mean,
+        jumpVariance: jumpVar,
+        diffusionVariance,
+        totalVariance: diffusionVariance + jumpVar,
+        ...doubleExponential(blendedSizes),
+        note: `Short gap history (${sizes.length}). Intensity pools this name with ${pool.gaps} sector gaps. Not a fixed class.${volNote}`,
+      },
+      detection,
+      gaps,
+    );
   }
   const id = fallbackJumpClass(args.series.role, args.series.quality.ipoShort, args.realizedAnnual ?? 0);
-  return classJump(id, diffusionDaily, k);
+  const fallback = classJump(id, diffusionDaily, k);
+  fallback.isJump = gaps;
+  fallback.volSource = detection.vol.source;
+  fallback.volFlag = detection.vol.flag;
+  if (detection.vol.flag) fallback.note = `${fallback.note} ${detection.vol.flag}`;
+  return fallback;
 }

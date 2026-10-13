@@ -46,6 +46,45 @@ const TABS = [
 
 type Tab = (typeof TABS)[number][0];
 
+const SCREEN_NOTE: Record<Tab, string> = {
+  decision: "Decision starts from the sample on screen. A halted sample leaves the tiles blank and names the input in the alert.",
+  holdings: "The holdings editor starts empty. Load an example shape or type a book. An empty book is not an error.",
+  trades: "Trades starts empty until the holdings book has rows. A rule break is an alert, not a silent pass.",
+  compare: "Compare starts empty. Score two books to see a paired difference. The page says so until you do.",
+  stress: "Stresses start empty. Nothing is applied until you run a button. A failed run stays on the alert.",
+  assumptions: "Assumptions start at the zero book or the teaching example you loaded. Invalid numbers pause the sample and show an alert.",
+  projections: "Projections stay blank until the sample runs. An invalid input is an alert, not a chart of zeros.",
+  reserve: "The reserve schedule starts from the case payments. A custom schedule you have not filled in stays empty.",
+  curve: "Curve fit, the history backtest, and the sampler lab start empty until you load a file or press the button.",
+  instruments: "Instrument prices start empty until you enter a coupon bond or import maturity buckets.",
+  tracking: "Tracking starts empty. Import fills to see weights and WInS P&L. That P&L is not an input.",
+  risk: "Risk starts empty until you import a daily price file. A file that does not parse is an alert.",
+  analytics: "Analytics starts empty until you supply the series or the exposure matrix the screen asks for.",
+  explore: "Explore starts empty. Frontiers appear after you run them. They are labeled exploration.",
+  citations: "Citations start empty until a price file is loaded. A quote the file does not support is flagged.",
+  facility: "The facility gift and the 2031 range follow the rule on screen. They stay blank when the sample is halted.",
+  ledger: "The run ledger starts empty. A completed sample appends a row. Nothing is stored until a run finishes.",
+  research: "Research starts empty. The demo lexicon works without FinBERT. A missing service is an error, not a score.",
+  export: "Export starts from the sample on screen. A halted sample names the error instead of writing a file.",
+  guide: "The guide is the modeling notes. It does not fill in a portfolio. Case cash flows stay locked.",
+};
+
+function ScreenNotice({ tab }: { tab: Tab }) {
+  const { output } = useStore();
+  if (output.errors.length > 0) {
+    return (
+      <p className="alert" role="alert" id="screen-error">
+        {SCREEN_NOTE[tab]} {output.errors[0]}
+      </p>
+    );
+  }
+  return (
+    <p className="screen-note" role="status" id="screen-status">
+      {SCREEN_NOTE[tab]}
+    </p>
+  );
+}
+
 export function App() {
   return (
     <StoreProvider>
@@ -164,6 +203,7 @@ function Shell() {
         ))}
       </nav>
       <main id="content" role="tabpanel" aria-labelledby={`tab-${tab}`}>
+        <ScreenNotice tab={tab} />
         {tab === "decision" ? <DashboardPanel /> : null}
         {tab === "holdings" ? <HoldingsPanel /> : null}
         {tab === "trades" ? <TradesPanel /> : null}

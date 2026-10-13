@@ -117,14 +117,28 @@ describe("V7 review regressions", () => {
     const ladder = pvAnnuityDue(50_000, 10, 0.03);
     expect(ladder).toBeCloseTo(439_305.44609395514, 4);
     expect(output.reserve.sizings.ladder.reserve).toBeCloseTo(ladder, 6);
-    expect(output.monteCarlo!.reserve.every((value) => value === 500_000)).toBe(true);
-    expect(output.monteCarlo!.gift[0]).toBe(output.monteCarlo!.wealth2033[0] - 500_000);
-    const funded =
-      output.monteCarlo!.wealth2033.filter((wealth) => wealth + 1e-6 >= 500_000).length / assumptions.trials;
+    expect(output.monteCarlo!.reserve.every((value) => Math.abs(value - ladder) < 1e-6)).toBe(true);
+    expect(output.monteCarlo!.gift[0]).toBeCloseTo(output.monteCarlo!.wealth2033[0] - ladder, 6);
+    const funded = output.monteCarlo!.wealth2033.filter((wealth) => wealth + 1e-6 >= ladder).length / assumptions.trials;
     expect(output.metrics!.fullyFundedProbability).toBe(funded);
-    expect(output.metrics!.fundedDefinition).toMatch(/own 2033 curve/);
-    expect(output.trialCurve!.label).toMatch(/own 2033 curve/);
-    expect(output.trialCurve!.label).toMatch(/not this hurdle/);
+    expect(output.warnings.join(" ")).toMatch(/[Nn]o stochastic curve/);
+    expect(output.metrics!.fundedDefinition).toMatch(/stochastic curve/);
+    expect(output.trialCurve!.label).toMatch(/[Nn]o stochastic curve/);
+
+    const stochastic = teachingAssumptions();
+    stochastic.trials = 50;
+    stochastic.reserve.discountMode = "trial_curve";
+    stochastic.reserve.discountYield = 0.03;
+    stochastic.rates.sigma = 0.01;
+    stochastic.rates.kappa = 0.2;
+    stochastic.rates.theta = 0.03;
+    stochastic.rates.r0 = 0.03;
+    const moving = runModel(stochastic);
+    expect(moving.errors).toEqual([]);
+    expect(moving.warnings).toEqual([]);
+    expect(moving.metrics!.fundedDefinition).toMatch(/own 2033 curve/);
+    expect(moving.trialCurve!.label).toMatch(/own 2033 curve/);
+    expect(moving.trialCurve!.label).toMatch(/not this hurdle/);
 
     assumptions.reserve.discountMode = "fixed_yield";
     const fixed = runModel(assumptions);
@@ -331,6 +345,7 @@ describe("V7 review regressions", () => {
     const assumptions = zeroAssumptions();
     assumptions.trials = 50;
     assumptions.sampling = "sobol";
+    assumptions.diagnostics = { samplerComparison: true };
     assumptions.sleeves = assumptions.sleeves.map((sleeve, index) =>
       index === 0 ? { ...sleeve, mu: 0.05, sigma: 0.1, base: 0.05 } : { ...sleeve, mu: 0.01, sigma: 0.02, base: 0.01 },
     );
@@ -415,11 +430,12 @@ describe("V7 review regressions", () => {
 
     const assumptions = teachingAssumptions();
     assumptions.trials = 50;
+    assumptions.diagnostics = { samplerComparison: true };
     const output = runModel(assumptions);
     const csv = trialsCsv(output);
     expect(csv.split("\n")[0]).toContain("wealth_2033");
     expect(csv).toContain(String(output.masterSeed));
-    expect(csv).toContain("8.0.0");
+    expect(csv).toContain("9.0.0");
     expect(csv).toContain(DATA_AS_OF);
     expect(csv).toContain(TREASURY_SHA256);
     const table = readTrialsParquet(trialsParquetBytes(output));
@@ -437,7 +453,7 @@ describe("V7 review regressions", () => {
     expect(french).toBe(FRENCH_SHA256);
     const stamp = provenanceStamp(teachingAssumptions(), 42);
     expect(stamp.dataAsOf).toBe("2026-10-08");
-    expect(stamp.version).toBe("8.0.0");
+    expect(stamp.version).toBe("9.0.0");
     expect(stamp.teachingNote).toMatch(/teaching numbers/);
     expect(stamp.assumptionsHash).toHaveLength(64);
   });

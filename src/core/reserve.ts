@@ -4,7 +4,7 @@ import { macaulayDuration, modifiedDuration, normalizeSeed, percentile, pvAnnuit
 import { batchMeansError } from "./metrics";
 import { yieldOnPath, type EvolvedRate } from "./rates";
 import { STREAM, standardNormal } from "./rng";
-import type { PathwiseFundedRatio, ReserveMethod, ReserveParams, ReserveSizing, ReserveYearRow, ReturnModel } from "./types";
+import type { PathwiseFundedRatio, RateParams, ReserveMethod, ReserveParams, ReserveSizing, ReserveYearRow, ReturnModel } from "./types";
 
 /**
  * Smallest reserve that funds every payment on one deterministic return path.
@@ -235,6 +235,76 @@ function finiteOrNull(method: ReserveMethod, reserve: number, message: string, y
     pathwiseFundedRatio: null,
     standardError: null,
     message,
+  };
+}
+
+const RATE_EPS = 1e-8;
+
+function magnitude(values: number[]): number {
+  let total = 0;
+  for (const value of values) total += Math.abs(value);
+  return total;
+}
+
+/** True when a rate volatility can move the curve from trial to trial. */
+export function stochasticCurve(rates: RateParams): boolean {
+  return Math.max(rates.sigma, rates.sigmaSlope, rates.sigmaCurve) > RATE_EPS;
+}
+
+/** True when every level, premium, and drift is zero and the curve cannot move. */
+export function flatZeroCurve(rates: RateParams): boolean {
+  if (stochasticCurve(rates)) return false;
+  const drift = rates.driftYears > 0 ? Math.abs(rates.driftPerYear) : 0;
+  return (
+    magnitude([
+      rates.r0,
+      rates.theta,
+      rates.thetaSlope,
+      rates.thetaCurve,
+      rates.beta0,
+      rates.beta1,
+      rates.beta2,
+      rates.beta3,
+      rates.intermediatePremium,
+      rates.longPremium,
+      rates.slope,
+      rates.levelShock,
+      drift,
+    ]) < RATE_EPS
+  );
+}
+
+export interface TrialCurvePolicy {
+  stochastic: boolean;
+  /** When set, every trial uses this reserve instead of its own curve. */
+  fixed: number | null;
+  warning: string | null;
+}
+
+/**
+ * A trial-curve reserve needs a curve that can move.
+ * A flat zero curve would silently price the ten payments at a zero yield.
+ * That case uses the stated discount yield and says so.
+ */
+export function trialCurvePolicy(
+  rates: RateParams,
+  discountYield: number,
+  payment = OPERATING_PAYMENT,
+  count = OPERATING_PAYMENTS,
+): TrialCurvePolicy {
+  if (stochasticCurve(rates)) return { stochastic: true, fixed: null, warning: null };
+  if (flatZeroCurve(rates)) {
+    return {
+      stochastic: false,
+      fixed: pvAnnuityDue(payment, count, discountYield),
+      warning:
+        "No stochastic curve: rate volatilities and the curve level are zero, so a trial-curve reserve would be the undiscounted sum of the payments. The stated discount yield is the hurdle.",
+    };
+  }
+  return {
+    stochastic: false,
+    fixed: null,
+    warning: "The curve does not vary across trials because the rate volatilities are zero. Every trial uses that same deterministic curve.",
   };
 }
 

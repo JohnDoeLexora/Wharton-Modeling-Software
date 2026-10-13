@@ -23,12 +23,12 @@ export function reportMarkdown(report: RiskReport, comparison: PairedComparison 
   lines.push("");
   lines.push("## Names");
   lines.push("");
-  lines.push("| Ticker | 1y daily vol | Monthly vol | EWMA | Horizon | Measured beta | SE | Vasicek (not measured) | Jumps | df | Flags |");
+  lines.push("| Ticker | 1y daily vol | Monthly vol | EWMA | Horizon | Measured beta (1-yr daily) | SE | Vasicek (not measured) | Jumps | df | Flags |");
   lines.push("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |");
   for (const card of report.names) {
     const measured = card.beta?.oneYear;
     lines.push(
-      `| ${card.ticker} | ${pct(card.vol.realized1y)} | ${pct(card.vol.realizedMonthly)} | ${pct(card.vol.ewma)} | ${pct(card.vol.horizon)} | ${num(measured?.beta)} | ${num(measured?.se)} | ${num(card.beta?.vasicek.beta)} | ${card.jumps.source}${card.jumps.fallbackClass ? ` (${card.jumps.fallbackClass})` : ""} | ${card.tails.df} | ${card.flags.join(", ") || "—"} |`,
+      `| ${card.ticker} | ${pct(card.vol.realized1y)} | ${pct(card.vol.realizedMonthly)} | ${pct(card.vol.ewma)} | ${pct(card.vol.horizon)} | ${num(measured?.beta)} (${measured?.window ?? "1-yr daily"}) | ${num(measured?.se)} | ${num(card.beta?.vasicek.beta)} | ${card.jumps.source}${card.jumps.fallbackClass ? ` (${card.jumps.fallbackClass})` : ""} | ${card.tails.df} | ${card.flags.join(", ") || "—"} |`,
     );
   }
   lines.push("");
@@ -37,7 +37,9 @@ export function reportMarkdown(report: RiskReport, comparison: PairedComparison 
   if (report.book) {
     lines.push("## Book");
     lines.push("");
-    lines.push(`Ex-ante vol ${pct(report.book.vol)}. Measured beta ${num(report.book.betaRaw)}. Shrunk beta ${num(report.book.betaShrunk)} (not measured).`);
+    lines.push(
+      `Ex-ante vol ${pct(report.book.vol)}. Measured beta ${num(report.book.betaRaw)}${report.book.betaWindow ? ` (${report.book.betaWindow})` : ""}. Shrunk beta ${num(report.book.betaShrunk)} (not measured).`,
+    );
     lines.push(`Factor share ${pct(report.book.factorShare)}, idiosyncratic share ${pct(report.book.idioShare)}, jump share ${pct(report.book.jumpShare)}.`);
     lines.push(`Worst historical gap stress: ${report.book.worstTicker || "—"} ${pct(report.book.worstStress)}.`);
     lines.push("");
@@ -74,6 +76,10 @@ export function reportMarkdown(report: RiskReport, comparison: PairedComparison 
     for (const side of [comparison.old, comparison.next]) {
       lines.push(`| ${side.label} | ${num(side.funded, 3)} | ${num(side.p5, 0)} | ${num(side.p50, 0)} | ${num(side.giftP5, 0)} | ${num(side.giftP50, 0)} |`);
     }
+    lines.push("");
+    lines.push(
+      `Paired difference (new − old): P(funded) ${num(comparison.paired.fundedDiff, 3)} (SE ${num(comparison.paired.fundedSe, 3)}), mean 2033 wealth ${num(comparison.paired.wealthDiff, 0)} (SE ${num(comparison.paired.wealthSe, 0)}). The table above is the two sample levels. The paired difference is the comparison.`,
+    );
     lines.push("");
   }
   lines.push("Covariance shrinkage " + num(report.factors.shrinkage, 3) + ". PSD " + (report.factors.psd ? "yes" : "no") + ".");

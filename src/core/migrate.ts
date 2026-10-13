@@ -121,6 +121,7 @@ function hydrateName(raw: unknown): BasketName | null {
     studentDf: finite(source.studentDf, 5),
     jumpProb: finite(source.jumpProb, 0),
     jumpMean: finite(source.jumpMean, 0),
+    ...(typeof source.jumpLambda === "number" && Number.isFinite(source.jumpLambda) ? { jumpLambda: source.jumpLambda } : {}),
     fxSigma: finite(source.fxSigma, 0),
     geoJumpProb: finite(source.geoJumpProb, 0),
     geoJumpMean: finite(source.geoJumpMean, 0),

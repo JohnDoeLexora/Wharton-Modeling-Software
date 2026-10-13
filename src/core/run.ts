@@ -19,7 +19,8 @@ import { priceTrial, usesPricedModel } from "./pricing";
 import { buildSchedule, continueFromBalances, projectPath, walkTrial, wealthInYear, type ReturnSchedule } from "./project";
 import { ratePath, toRatePathPoints } from "./rates";
 import { fundingByRegime, REGIME_TABLE_NOTE } from "./regimeReserve";
-import { reserveFromCurve, rollReserve, scheduleReturnsFor, shortfallOrderStatistic, shortfallRequirementSample, sizeReserve, sizingRate } from "./reserve";
+import { reserveFromCurve, rollReserve, scheduleReturnsFor, shortfallOrderStatistic, shortfallRequirementSample, sizeReserve, sizingRate, trialCurvePolicy } from "./reserve";
+import { effectiveSampleSize } from "./ess";
 import { samplerConvergence } from "./sobol";
 import { stateCoverage } from "./stateRange";
 import { STREAM, streamManifest } from "./rng";
@@ -217,6 +218,9 @@ export function validate(assumptions: Assumptions): string[] {
     if (name.jumpProb < 0 || name.jumpProb > 1 || name.geoJumpProb < 0 || name.geoJumpProb > 1) {
       errors.push(`${name.ticker}: jump probabilities must sit between 0 and 1.`);
     }
+    if (name.jumpLambda !== undefined && (!Number.isFinite(name.jumpLambda) || name.jumpLambda < 0 || name.jumpLambda > 50)) {
+      errors.push(`${name.ticker}: jump intensity must sit between 0 and 50 per year.`);
+    }
   });
   if (!Array.isArray(assumptions.mixes) || assumptions.mixes.length > 8) errors.push("Compare at most 8 mixes.");
   return [...new Set(errors)];
@@ -290,6 +294,7 @@ function halted(args: {
     samplerComparison: null,
     provenance: args.provenance,
     mixes: [],
+    warnings: [],
   };
 }
 
@@ -424,6 +429,19 @@ export function runModel(assumptions: Assumptions, hooks?: RunHooks): ModelOutpu
     columnLists.push(list);
   }
   const trialInput = { ...pathBase, mode: "mc" as const, trial: 0 };
+  const curvePolicy =
+    assumptions.reserve.discountMode === "trial_curve" && !assumptions.facility.useReserveOverride
+      ? trialCurvePolicy(assumptions.rates, assumptions.reserve.discountYield)
+      : null;
+  const constantCurveReserve =
+    curvePolicy === null
+      ? null
+      : curvePolicy.fixed !== null
+        ? curvePolicy.fixed
+        : curvePolicy.stochastic
+          ? null
+          : curveReserve(assumptions, "base");
+  const warnings = curvePolicy?.warning ? [curvePolicy.warning] : [];
   const bal = Array(sleeveCount).fill(0);
   const balH = Array(sleeveCount).fill(0);
   const driftedBuf = Array(sleeveCount).fill(0);
@@ -472,7 +490,7 @@ export function runModel(assumptions: Assumptions, hooks?: RunHooks): ModelOutpu
     if (sketch.sortino !== null) sortinos.push(sketch.sortino);
     const w2031 = sketch.wealth2031;
     const w2033 = sketch.wealth2033;
-    const reserveT = trialReserve(assumptions, returns, active.reserve);
+    const reserveT = constantCurveReserve !== null ? constantCurveReserve : trialReserve(assumptions, returns, active.reserve);
     if (!Number.isFinite(w2031) || !Number.isFinite(w2033) || !Number.isFinite(reserveT)) nonFinite = true;
     wealth2031.push(w2031);
     wealth2033.push(w2033);
@@ -571,8 +589,10 @@ export function runModel(assumptions: Assumptions, hooks?: RunHooks): ModelOutpu
     facility,
     reserveSamplingError: active.standardError,
   });
-  const comparison = samplerConvergence(masterSeed);
+  const wantSampler = assumptions.diagnostics?.samplerComparison === true;
+  const comparison = wantSampler ? samplerConvergence(masterSeed) : null;
   const control = controlVariateNote(assumptions, wealth2033, sleeve0);
+  if (control && metrics && !comparison) metrics.convergence.note = `${metrics.convergence.note} ${control}`;
   const mixes = mixPlans.map((plan) => scoreStoredMix(plan, wealth2033, reserves, assumptions));
   const kernelReport = kernelReportFrom({ flags: assumptions.kernel, wealth2031, gift: gifts });
 
@@ -602,8 +622,11 @@ export function runModel(assumptions: Assumptions, hooks?: RunHooks): ModelOutpu
     metrics,
     trialCurve: trialCurveSummary(assumptions, reserves),
     stateRange: stateCoverage(states, wealth2033),
-    samplerComparison: { ...comparison, note: control ? `${comparison.note} ${control}` : comparison.note },
+    samplerComparison: comparison
+      ? { ...comparison, note: control ? `${comparison.note} ${control}` : comparison.note }
+      : null,
     provenance,
+    warnings,
     mixes,
     ...(kernelReport ? { kernelReport } : {}),
   };
@@ -765,10 +788,7 @@ function summarizeMetrics(args: {
     sharpeNote: priced
       ? "Mean of per-trial Sharpe ratios. Each year subtracts that trial's cash yield, the short rate on the priced path."
       : `Mean of per-trial Sharpe ratios. Each year subtracts the rate card's short rate r0 (${assumptions.rates.r0}). Parametric sleeves are not priced as a bill, so this is the stated cash yield.`,
-    fundedDefinition:
-      assumptions.reserve.discountMode === "trial_curve" && !assumptions.facility.useReserveOverride
-        ? "Share of trials whose beginning-of-2033 wealth covers the present value of the ten $50,000 payments, 2033 through 2042, on that trial's own 2033 curve. The first payment is immediate."
-        : "Share of trials whose beginning-of-2033 wealth covers one fixed reserve. The simulated curve does not move that hurdle. Fixed yield is labeled on the reserve page.",
+    fundedDefinition: fundedDefinitionOf(assumptions),
     normalFloorBias: floor ? floor.bias : null,
     normalFloorCorrected: assumptions.returnModel === "normal" && assumptions.correctNormalFloor === true,
     riskFree: priced ? "Path cash yield" : `r0 = ${assumptions.rates.r0}`,
@@ -784,7 +804,13 @@ function summarizeMetrics(args: {
       standardErrorMaxDrawdown: batchOf(drawdowns, (slice) => slice.reduce((total, value) => total + value, 0) / slice.length),
       standardErrorSharpe: batchOf(sharpes, (slice) => slice.reduce((total, value) => total + value, 0) / slice.length),
       standardErrorReserve: assumptions.reserve.discountMode === "trial_curve" ? reserveSe : args.reserveSamplingError,
-    note: CONVERGENCE_NOTE,
+      effectiveSamples: {
+        meanWealth: effectiveSampleSize(wealth2033),
+        funded: effectiveSampleSize(fundedFlags.map((flag) => (flag ? 1 : 0))),
+        drawdown: effectiveSampleSize(drawdowns),
+        sharpe: effectiveSampleSize(sharpes),
+      },
+      note: CONVERGENCE_NOTE,
     },
     sleeveMtm: assumptions.sleeves.map((sleeve, index) => ({
       id: sleeve.id,
@@ -835,16 +861,42 @@ function scoreStoredMix(
   };
 }
 
+function fundedDefinitionOf(assumptions: Assumptions): string {
+  if (assumptions.facility.useReserveOverride || assumptions.reserve.discountMode !== "trial_curve") {
+    return "Share of trials whose beginning-of-2033 wealth covers one fixed reserve. The simulated curve does not move that hurdle. Fixed yield is labeled on the reserve page.";
+  }
+  const policy = trialCurvePolicy(assumptions.rates, assumptions.reserve.discountYield);
+  if (policy.fixed !== null) {
+    return "Share of trials whose beginning-of-2033 wealth covers the present value of the ten $50,000 payments at the stated discount yield. There is no stochastic curve, so the trial curve is not the hurdle. The first payment is immediate.";
+  }
+  if (!policy.stochastic) {
+    return "Share of trials whose beginning-of-2033 wealth covers the present value of the ten $50,000 payments on the deterministic 2033 curve. Rate volatilities are zero, so the curve does not vary by trial. The first payment is immediate.";
+  }
+  return "Share of trials whose beginning-of-2033 wealth covers the present value of the ten $50,000 payments, 2033 through 2042, on that trial's own 2033 curve. The first payment is immediate.";
+}
+
+function trialCurveLabel(assumptions: Assumptions): string {
+  if (assumptions.reserve.discountMode !== "trial_curve" || assumptions.facility.useReserveOverride) {
+    return "One discount yield prices the reserve on every trial. The simulated curve is not used.";
+  }
+  const policy = trialCurvePolicy(assumptions.rates, assumptions.reserve.discountYield);
+  if (policy.fixed !== null) {
+    return "No stochastic curve. The stated discount yield prices the reserve on every trial. A flat zero curve is not this hurdle.";
+  }
+  if (!policy.stochastic) {
+    return "Rate volatilities are zero, so every trial uses the same deterministic 2033 curve. The discount yield is not this hurdle.";
+  }
+  return "Each trial discounts the ten payments on its own 2033 curve. The discount yield is not this hurdle.";
+}
+
 function trialCurveSummary(assumptions: Assumptions, reserves: number[]): ModelOutput["trialCurve"] {
   const finite = reserves.filter((value) => Number.isFinite(value));
   const mean = meanOf(finite);
   const error = batchOf(finite, (slice) => slice.reduce((total, value) => total + value, 0) / slice.length);
-  const trial = assumptions.reserve.discountMode === "trial_curve";
+  const trial = assumptions.reserve.discountMode === "trial_curve" && !assumptions.facility.useReserveOverride;
   return {
     mode: trial ? "trial_curve" : "fixed_yield",
-    label: trial
-      ? "Each trial discounts the ten payments on its own 2033 curve. The discount yield is not this hurdle."
-      : "One discount yield prices the reserve on every trial. The simulated curve is not used.",
+    label: trialCurveLabel(assumptions),
     p5: finite.length ? percentile(finite, 0.05) : null,
     p50: finite.length ? percentile(finite, 0.5) : null,
     p95: finite.length ? percentile(finite, 0.95) : null,
@@ -881,11 +933,19 @@ function reserveTargetOf(assumptions: Assumptions, active: ReserveSizing): { val
     };
   }
   if (assumptions.reserve.discountMode === "trial_curve") {
+    const policy = trialCurvePolicy(assumptions.rates, assumptions.reserve.discountYield);
+    if (policy.fixed !== null) {
+      return {
+        value: policy.fixed,
+        source: "Stated discount yield. No stochastic curve, so the trial curve is not the facility hurdle.",
+      };
+    }
     const value = curveReserve(assumptions, "base");
     return {
       value: Number.isFinite(value) ? value : null,
-      source:
-        "Base-scenario present value of the ten payments on the 2033 curve. Each Monte Carlo trial uses its own curve. The discount yield is the fixed-yield illustration and is not this hurdle.",
+      source: policy.stochastic
+        ? "Base-scenario present value of the ten payments on the 2033 curve. Each Monte Carlo trial uses its own curve. The discount yield is the fixed-yield illustration and is not this hurdle."
+        : "Present value on the deterministic 2033 curve. Rate volatilities are zero, so the curve does not vary by trial. The discount yield is not this hurdle.",
     };
   }
   if (active.reserve === null) return { value: null, source: "The selected reserve method did not return a finite amount." };

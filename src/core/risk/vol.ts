@@ -44,10 +44,28 @@ export interface GarchFit {
   longRun: number;
   /** Conditional variance of the next session. */
   current: number;
+  /** Conditional variance of each observed return, before that return is seen. Empty when the fit failed. */
+  path: number[];
   logLik: number;
   annualCurrent: number;
   annualLongRun: number;
   note: string;
+}
+
+const garchCache = new Map<string, GarchFit>();
+
+/** Content key so the same series is not fit three times in one report. */
+export function seriesKey(returns: number[]): string {
+  let sum = 0;
+  let sumsq = 0;
+  let weighted = 0;
+  for (let i = 0; i < returns.length; i++) {
+    const value = returns[i];
+    sum += value;
+    sumsq += value * value;
+    weighted += (i + 1) * value;
+  }
+  return `${returns.length}|${sum}|${sumsq}|${weighted}|${returns[0] ?? ""}|${returns[returns.length - 1] ?? ""}`;
 }
 
 function garchPath(demeaned: number[], longRun: number, alpha: number, beta: number): { path: number[]; next: number; logLik: number } {
@@ -71,6 +89,19 @@ function garchPath(demeaned: number[], longRun: number, alpha: number, beta: num
  * with α + β < 0.995. Ties prefer the smaller α, then the smaller β.
  */
 export function fitGarch(returns: number[]): GarchFit {
+  const key = seriesKey(returns);
+  const cached = garchCache.get(key);
+  if (cached) return cached;
+  const fit = fitGarchUncached(returns);
+  garchCache.set(key, fit);
+  if (garchCache.size > 48) {
+    const oldest = garchCache.keys().next().value;
+    if (oldest !== undefined) garchCache.delete(oldest);
+  }
+  return fit;
+}
+
+function fitGarchUncached(returns: number[]): GarchFit {
   const fail = (note: string): GarchFit => ({
     ok: false,
     omega: NaN,
@@ -78,15 +109,19 @@ export function fitGarch(returns: number[]): GarchFit {
     beta: NaN,
     longRun: NaN,
     current: NaN,
+    path: [],
     logLik: NaN,
     annualCurrent: NaN,
     annualLongRun: NaN,
     note,
   });
-  if (returns.length < 30) return fail("Fewer than 30 returns. GARCH was not fit.");
+  if (returns.length < 30) return fail("Fewer than 30 returns. GARCH was not fit. EWMA is the fallback.");
+  if (returns.some((value) => !Number.isFinite(value))) return fail("A return was not finite. GARCH was not fit. EWMA is the fallback.");
   const center = mean(returns);
+  if (!Number.isFinite(center)) return fail("The return mean was not finite. GARCH was not fit. EWMA is the fallback.");
   const demeaned = returns.map((value) => value - center);
   const longRun = Math.max(meanSquare(demeaned), 1e-12);
+  if (!Number.isFinite(longRun)) return fail("The long-run variance was not finite. GARCH was not fit. EWMA is the fallback.");
   let bestA = 0;
   let bestB = 0.9;
   let bestLl = -Infinity;
@@ -96,6 +131,7 @@ export function fitGarch(returns: number[]): GarchFit {
       const beta = bi / 100;
       if (alpha + beta >= 0.995) continue;
       const { logLik } = garchPath(demeaned, longRun, alpha, beta);
+      if (!Number.isFinite(logLik)) continue;
       const better = logLik > bestLl + 1e-9;
       const tie = Math.abs(logLik - bestLl) <= 1e-9 && (alpha < bestA || (alpha === bestA && beta < bestB));
       if (better || tie) {
@@ -105,7 +141,11 @@ export function fitGarch(returns: number[]): GarchFit {
       }
     }
   }
+  if (!Number.isFinite(bestLl)) return fail("GARCH likelihood did not converge. EWMA is the fallback.");
   const fitted = garchPath(demeaned, longRun, bestA, bestB);
+  if (!fitted.path.every((value) => Number.isFinite(value) && value > 0)) {
+    return fail("GARCH variance path was not usable. EWMA is the fallback.");
+  }
   const omega = longRun * (1 - bestA - bestB);
   return {
     ok: true,
@@ -114,10 +154,33 @@ export function fitGarch(returns: number[]): GarchFit {
     beta: bestB,
     longRun,
     current: fitted.next,
+    path: fitted.path,
     logLik: fitted.logLik,
     annualCurrent: Math.sqrt(fitted.next * TRADING_DAYS),
     annualLongRun: Math.sqrt(longRun * TRADING_DAYS),
     note: "Variance-targeted Gaussian GARCH(1,1). The long-run variance is the mean square of demeaned returns.",
+  };
+}
+
+export interface ConditionalVol {
+  sigma: number[];
+  source: "garch" | "ewma";
+  /** Null when GARCH supplied the path. Set when the screen should show the fallback. */
+  flag: string | null;
+}
+
+/** Ex-ante volatility of each return. GARCH when the fit converges, otherwise EWMA, with a flag. */
+export function conditionalSigma(returns: number[], lambda = RISKMETRICS_LAMBDA): ConditionalVol {
+  const garch = fitGarch(returns);
+  if (garch.ok && garch.path.length === returns.length) {
+    return { sigma: garch.path.map((value) => Math.sqrt(value)), source: "garch", flag: null };
+  }
+  const ewma = ewmaVariance(returns, lambda);
+  const sigma = ewma.variance.map((value) => Math.sqrt(Math.max(value, 1e-12)));
+  return {
+    sigma,
+    source: "ewma",
+    flag: garch.note || "GARCH was not fit. EWMA variance is the fallback.",
   };
 }
 
@@ -208,6 +271,9 @@ export function volCard(series: CleanSeries, lambda = RISKMETRICS_LAMBDA): VolCa
   const lo = compared.length ? Math.min(...compared) : NaN;
   const ratio = lo > 0 ? hi / lo : NaN;
   const disagreement = Number.isFinite(ratio) && ratio > DISAGREEMENT_RATIO;
+  const band = disagreement
+    ? `Estimators differ by ${ratio.toFixed(2)}×, above ${DISAGREEMENT_RATIO}. Monthly smoothing and a calm older sample can hide a recent gap regime.`
+    : "The annualized estimators sit within a 1.5× band.";
   return {
     realizedDaily: daily,
     realizedMonthly: monthly,
@@ -226,8 +292,6 @@ export function volCard(series: CleanSeries, lambda = RISKMETRICS_LAMBDA): VolCa
     oldMonthly: monthly,
     disagreement,
     ratio,
-    note: disagreement
-      ? `Estimators differ by ${ratio.toFixed(2)}×, above ${DISAGREEMENT_RATIO}. Monthly smoothing and a calm older sample can hide a recent gap regime.`
-      : "The annualized estimators sit within a 1.5× band.",
+    note: garch.ok ? band : `${band} ${garch.note}`,
   };
 }

@@ -123,7 +123,8 @@ export function StatusBanners() {
   const asOf = output.provenance?.dataAsOf;
   const today = new Date().toISOString().slice(0, 10);
   const stale = asOf ? tradingDaysBetween(asOf, today) > 5 : false;
-  if (!repaired && !seedIssue && !stale) return null;
+  const warnings = output.warnings ?? [];
+  if (!repaired && !seedIssue && !stale && warnings.length === 0) return null;
   return (
     <div className="banner-stack">
       {repaired ? (
@@ -136,6 +137,11 @@ export function StatusBanners() {
           {seedIssue}
         </p>
       ) : null}
+      {warnings.map((warning) => (
+        <p className="alert warn" role="status" key={warning}>
+          {warning}
+        </p>
+      ))}
       {stale && asOf ? (
         <p className="alert" role="alert">
           Bundled market data is as of {asOf}, more than five trading days before {today}.

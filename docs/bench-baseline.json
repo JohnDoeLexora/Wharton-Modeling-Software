@@ -1,0 +1,10 @@
+{
+  "parametricTrials": 5000,
+  "parametricMs": 580,
+  "parametricBudgetMs": 8000,
+  "interactionMs": 2,
+  "interactionBudgetMs": 100,
+  "funded": 0.9368,
+  "reserve0": 439305.44609395514,
+  "note": "Teaching book, parametric, sampler comparison off. The interaction row is the synchronous chart and effective-sample-size work, not a browser click. Browser clicks are outside verify."
+}

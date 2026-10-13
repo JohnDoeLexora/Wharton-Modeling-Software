@@ -161,8 +161,22 @@ The board workbook is an XLSX file of the headline rows.
 
 ## 14. What this specification does not do
 
-It does not select weights. It does not turn a scenario into a probability. It does not early-stop a Monte Carlo at a target standard error. Trial counts stay on the form, from 50 to 20,000.
+It does not select weights. It does not turn a scenario into a probability. The trial count on the assumptions form stays the team's choice, from 50 to 20,000, and the main sample does not stop early. The Curve lab can plot standard error against N for pseudo-random, antithetic, and Sobol draws, and it can stop a separate sample when a target standard error is met. That lab does not rewrite the form.
 
 ## 15. Parity
 
 Twenty golden configurations agree between TypeScript and `kernel.py` to a relative error of `1e-9` or better on the first path and on beginning-of-2033 wealth. Five richer configurations also agree on p5, p50, p95, P(funded) at a $500,000 reserve, and the gift, within three standard errors. Bend laws lock the integer forms of a zero drag, a midpoint target duration, a zero-kappa spread, Euler components that sum, and a one-bet entropy. Those laws do not print golden lines.
+
+## 16. Dated accrued interest
+
+The tenor helper `accruedInterest` is unchanged: on a coupon date, accrued interest is zero. A dated quote uses ACT/ACT ICMA for a Treasury and 30/360 US (NASD) for a corporate. Accrued interest is the period coupon times the day-count fraction. Inside an ex-coupon window the fraction is negative, so the dirty price is the clean price plus a negative accrual. `WINS_SETTLEMENT` (`2026-02-20`) is an illustrative date. It is not a trade and it is not an input to `runModel`.
+
+## 17. Jumps in the portfolio engine
+
+Detection uses GARCH-standardized residuals of demeaned returns, or EWMA when GARCH does not converge, with that fallback flagged. The threshold is a Student-t quantile aimed at about 0.02 false positives per year. The annual step draws a compound Poisson count and size `jumpMean`, and subtracts λ times that mean, so the jump does not add drift. Scenario paths use the compensated mean, which is zero. The Student-t degrees of freedom are fit on the returns that were not jumps. A name with at least three years of history and no detected gap does not receive a class-fallback jump.
+
+Bend `Names.golden_jump` and the TypeScript `nameReturnPpm` helper still subtract probability times loss. That product is the locked integer identity `40000`. It is not the compensated scenario return of the float engine. Python `kernel.py` has no jump term. `jump_variance_ppm` stays the Poisson second moment, and the Bend law `jump_var` stays `18000`.
+
+## 18. A trial-curve reserve with no curve
+
+When discount mode is `trial_curve` and rate volatilities and the curve level are all zero, the reserve is the annuity due at the stated `discountYield`, and the run warns that there is no stochastic curve. A zero-yield ladder of the ten payments remains $500,000. That identity is the zero-yield case, not the teaching book's 3% hurdle.

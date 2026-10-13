@@ -9,6 +9,8 @@ export interface ComponentRisk {
   component: number;
   percent: number;
   betaRaw: number;
+  /** Window of the slope in `betaRaw`, for example "full-sample daily" or "Dimson daily". */
+  betaWindow: string;
   betaShrunk: number;
   largestGap: number;
   stress: number;
@@ -17,6 +19,8 @@ export interface ComponentRisk {
 export interface BookRisk {
   vol: number;
   betaRaw: number;
+  /** Window shared by the measured betas, or "mixed windows" when names differ. */
+  betaWindow: string;
   betaShrunk: number;
   components: ComponentRisk[];
   factorShare: number;
@@ -45,6 +49,7 @@ export function bookRisk(args: {
   weights: number[];
   cov: number[][];
   betaRaw: number[];
+  betaWindow?: string[];
   betaShrunk: number[];
   idioVariance: number[];
   jumpVariance: number[];
@@ -56,14 +61,24 @@ export function bookRisk(args: {
   const risk = componentRisk(weights, args.cov);
   let betaRaw = 0;
   let betaShrunk = 0;
+  let betaMass = 0;
+  let shrunkMass = 0;
   let idio = 0;
   let jump = 0;
   for (let i = 0; i < weights.length; i++) {
-    betaRaw += weights[i] * (args.betaRaw[i] ?? 0);
-    betaShrunk += weights[i] * (args.betaShrunk[i] ?? 0);
+    if (Number.isFinite(args.betaRaw[i])) {
+      betaRaw += weights[i] * args.betaRaw[i];
+      betaMass += weights[i];
+    }
+    if (Number.isFinite(args.betaShrunk[i])) {
+      betaShrunk += weights[i] * args.betaShrunk[i];
+      shrunkMass += weights[i];
+    }
     idio += weights[i] * weights[i] * Math.max(0, args.idioVariance[i] ?? 0);
     jump += weights[i] * weights[i] * Math.max(0, args.jumpVariance[i] ?? 0);
   }
+  betaRaw = betaMass > 0 ? betaRaw / betaMass : NaN;
+  betaShrunk = shrunkMass > 0 ? betaShrunk / shrunkMass : NaN;
   const modelVar = Math.max(0, args.factorVariance) + idio + jump;
   const components: ComponentRisk[] = args.tickers.map((ticker, i) => ({
     ticker,
@@ -72,6 +87,7 @@ export function bookRisk(args: {
     component: risk.component[i] ?? 0,
     percent: risk.vol > 0 ? (risk.component[i] ?? 0) / risk.vol : 0,
     betaRaw: args.betaRaw[i] ?? NaN,
+    betaWindow: args.betaWindow?.[i] ?? "",
     betaShrunk: args.betaShrunk[i] ?? NaN,
     largestGap: args.largestGap[i] ?? 0,
     stress: weights[i] * (args.largestGap[i] ?? 0),
@@ -84,9 +100,11 @@ export function bookRisk(args: {
       worstTicker = row.ticker;
     }
   }
+  const windows = [...new Set((args.betaWindow ?? []).filter((window) => window.length > 0))];
   return {
     vol: risk.vol,
     betaRaw,
+    betaWindow: windows.length === 0 ? "" : windows.length === 1 ? windows[0] : "mixed windows",
     betaShrunk,
     components,
     factorShare: modelVar > 0 ? args.factorVariance / modelVar : NaN,

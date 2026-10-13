@@ -213,6 +213,58 @@ export function fitNelsonSiegel(
   return { ...factors, rmse: rows.rmse, rows };
 }
 
+export interface RobustCurveFit {
+  ok: boolean;
+  curve: FittedCurve | null;
+  /** Null when OLS converged. Set when the screen should show the fallback. */
+  flag: string | null;
+  fallback: "median-flat" | null;
+}
+
+function medianFinite(values: number[]): number {
+  const sorted = values.slice().sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+/**
+ * Nelson-Siegel OLS, or a flat curve at the median quoted zero when the fit does not converge.
+ * `ok` is false on the fallback so a caller can show `flag`.
+ */
+export function fitCurveRobust(
+  points: { tenor: number; zero: number }[],
+  lambda = DEFAULT_LAMBDA,
+): RobustCurveFit {
+  const fit = fitNelsonSiegel(points, lambda);
+  if (fit) return { ok: true, curve: fit, flag: null, fallback: null };
+  const zeros = points.map((point) => point.zero).filter((value) => Number.isFinite(value));
+  if (zeros.length === 0) {
+    return {
+      ok: false,
+      curve: null,
+      flag: "Nelson-Siegel did not fit and no finite zero was available for a flat fallback.",
+      fallback: null,
+    };
+  }
+  const level = medianFinite(zeros);
+  const factors: Factors = {
+    beta0: level,
+    beta1: 0,
+    beta2: 0,
+    beta3: 0,
+    lambda: Math.abs(lambda) < 1e-8 ? DEFAULT_LAMBDA : lambda,
+    lambda2: DEFAULT_LAMBDA2,
+  };
+  const usable = points.filter((point) => point.tenor > 0 && Number.isFinite(point.zero));
+  const rows = usable.length > 0 ? fitReport(usable, factors) : Object.assign([] as FittedCurve["rows"], { rmse: 0 });
+  return {
+    ok: false,
+    curve: { ...factors, rmse: rows.rmse, rows },
+    flag: "Nelson-Siegel OLS did not converge. The curve is the median quoted zero, flat.",
+    fallback: "median-flat",
+  };
+}
+
 /** OLS on the four Svensson loadings. lambda and lambda2 stay fixed. */
 export function fitSvensson(
   points: { tenor: number; zero: number }[],

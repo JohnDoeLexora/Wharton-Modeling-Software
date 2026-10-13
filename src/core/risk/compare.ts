@@ -7,8 +7,9 @@
 
 import { caseContribution, OPERATING_PAYMENT } from "../case";
 import { zeroAssumptions } from "../defaults";
+import { pairedDifference, pairedFunded } from "../paired";
 import { runModel } from "../run";
-import type { Assumptions, BasketName } from "../types";
+import type { Assumptions, BasketName, ModelOutput } from "../types";
 import type { NameCard, RiskReport } from "./assemble";
 import { blumeBeta } from "./beta";
 import { fallbackJumpClass, JUMP_CLASSES } from "./jumps";
@@ -25,11 +26,21 @@ export interface MethodSummary {
   errors: string[];
 }
 
+export interface PairedDelta {
+  /** New method minus old method, same trials. */
+  fundedDiff: number;
+  fundedSe: number;
+  wealthDiff: number;
+  wealthSe: number;
+  label: string;
+}
+
 export interface PairedComparison {
   trials: number;
   seed: number;
   old: MethodSummary;
   next: MethodSummary;
+  paired: PairedDelta;
   cash2027: number;
   cash2028: number;
   payment: number;
@@ -46,12 +57,18 @@ function heldCards(report: RiskReport): { card: NameCard; weight: number }[] {
     .filter((row): row is { card: NameCard; weight: number } => row !== null);
 }
 
-function basketRow(card: NameCard, weight: number, mode: "old" | "new"): BasketName {
-  const monthlyBeta = card.beta?.monthly.beta ?? 0;
-  const blume = Number.isFinite(monthlyBeta) ? blumeBeta(monthlyBeta) : 1;
+function residualMonthly(card: NameCard, marketMonthly: number): number {
   const monthlyVol = Number.isFinite(card.vol.realizedMonthly) ? card.vol.realizedMonthly : card.vol.realizedDaily;
+  const beta = card.beta?.monthly.beta;
+  const systematic = beta !== undefined && Number.isFinite(beta) ? beta * beta * marketMonthly * marketMonthly : 0;
+  return Math.sqrt(Math.max(0, monthlyVol * monthlyVol - systematic));
+}
+
+function basketRow(card: NameCard, weight: number, mode: "old" | "new", marketMonthly: number): BasketName {
+  const monthlyBeta = card.beta?.monthly.beta;
+  const blume = Number.isFinite(monthlyBeta) ? blumeBeta(monthlyBeta as number) : 1;
   const klass = JUMP_CLASSES[fallbackJumpClass(card.role, card.quality.ipoShort, card.vol.realizedDaily)];
-  const oldIdio = Math.sqrt(Math.max(0, monthlyVol * monthlyVol));
+  const oldIdio = residualMonthly(card, marketMonthly);
   const useNew = mode === "new";
   const beta = useNew ? card.proposal.beta : blume;
   return {
@@ -67,6 +84,7 @@ function basketRow(card: NameCard, weight: number, mode: "old" | "new"): BasketN
     studentDf: useNew ? card.proposal.studentDf : 5,
     jumpProb: useNew ? card.proposal.jumpProb : klass.prob,
     jumpMean: useNew ? card.proposal.jumpMean : klass.mean,
+    jumpLambda: useNew ? card.proposal.jumpLambda : undefined,
     fxSigma: 0,
     geoJumpProb: 0,
     geoJumpMean: 0,
@@ -79,8 +97,15 @@ function basketRow(card: NameCard, weight: number, mode: "old" | "new"): BasketN
   };
 }
 
-export function assumptionsForMethod(report: RiskReport, mode: "old" | "new", trials: number, seed = 42): Assumptions {
-  const assumptions = zeroAssumptions();
+export function assumptionsForMethod(
+  report: RiskReport,
+  mode: "old" | "new",
+  trials: number,
+  seed = 42,
+  base?: Assumptions,
+): Assumptions {
+  const assumptions = base ? structuredClone(base) : zeroAssumptions();
+  const marketMu = assumptions.equity.marketMu;
   assumptions.trials = trials;
   assumptions.seed = seed;
   assumptions.tag = "edited";
@@ -93,19 +118,18 @@ export function assumptionsForMethod(report: RiskReport, mode: "old" | "new", tr
   ];
   assumptions.equity = {
     ...assumptions.equity,
-    marketMu: 0,
+    marketMu,
     marketSigma: mode === "new" ? report.marketHorizon : report.marketMonthly,
     studentDf: mode === "new" ? Math.min(30, Math.max(3, Math.round(report.marketDf))) : 5,
     sectorSigma: 0,
-    regimeDrag: 0,
   };
-  assumptions.basket = heldCards(report).map((row) => basketRow(row.card, row.weight, mode));
+  assumptions.basket = heldCards(report).map((row) => basketRow(row.card, row.weight, mode, report.marketMonthly));
   assumptions.mixes = [];
+  assumptions.diagnostics = undefined;
   return assumptions;
 }
 
-function summarize(label: string, assumptions: Assumptions, report: RiskReport, mode: "old" | "new"): MethodSummary {
-  const output = runModel(assumptions);
+function summarize(label: string, assumptions: Assumptions, report: RiskReport, mode: "old" | "new", output: ModelOutput): MethodSummary {
   const metrics = output.metrics;
   const rows = heldCards(report);
   return {
@@ -134,18 +158,33 @@ function summarize(label: string, assumptions: Assumptions, report: RiskReport, 
 }
 
 /** Paired case-model run. The example book is an input. It is not a recommendation. */
-export function compareMethods(report: RiskReport, trials = 200, seed = 42): PairedComparison {
-  const oldAssumptions = assumptionsForMethod(report, "old", trials, seed);
-  const newAssumptions = assumptionsForMethod(report, "new", trials, seed);
+export function compareMethods(report: RiskReport, trials = 200, seed = 42, base?: Assumptions): PairedComparison {
+  const oldAssumptions = assumptionsForMethod(report, "old", trials, seed, base);
+  const newAssumptions = assumptionsForMethod(report, "new", trials, seed, base);
+  const oldOutput = runModel(oldAssumptions);
+  const newOutput = runModel(newAssumptions);
+  const oldWealth = oldOutput.monteCarlo?.wealth2033 ?? [];
+  const newWealth = newOutput.monteCarlo?.wealth2033 ?? [];
+  const funded = pairedFunded(oldWealth, newWealth, oldOutput.monteCarlo?.reserve ?? [], newOutput.monteCarlo?.reserve ?? []);
+  const wealth = pairedDifference(oldWealth, newWealth);
+  const paired: PairedDelta = {
+    fundedDiff: funded.mean,
+    fundedSe: funded.se,
+    wealthDiff: wealth.mean,
+    wealthSe: wealth.se,
+    label: "Paired difference (new − old) under common random numbers. Levels of P(funded) are not the comparison.",
+  };
+  const mu = oldAssumptions.equity.marketMu;
   return {
     trials,
     seed,
-    old: summarize("old monthly + Blume + jump class", oldAssumptions, report, "old"),
-    next: summarize("new horizon + Vasicek + fitted jumps", newAssumptions, report, "new"),
+    old: summarize("old monthly + Blume + jump class", oldAssumptions, report, "old", oldOutput),
+    next: summarize("new horizon + Vasicek + fitted jumps", newAssumptions, report, "new", newOutput),
+    paired,
     cash2027: caseContribution(2027),
     cash2028: caseContribution(2028),
     payment: OPERATING_PAYMENT,
-    note: "Same seed, same locked cash flows, same zero rate path. The only change is the equity risk inputs. P(funded), p5 wealth, and gift percentiles are sample results, not a recommendation.",
+    note: `Paired difference of the new method minus the old method. Market drift is the caller's market μ (${mu}). Reserve settings are the caller's. ${paired.label}`,
   };
 }
 
@@ -157,14 +196,14 @@ export function copyProposals(assumptions: Assumptions, report: RiskReport): Ass
     const card = byTicker.get(name.ticker);
     if (!card) return name;
     seen.add(name.ticker);
-    const row = basketRow(card, name.weight, "new");
+    const row = basketRow(card, name.weight, "new", report.marketMonthly);
     return { ...name, ...row, id: name.id, weight: name.weight, linkNote: name.linkNote };
   });
   for (const component of report.book?.components ?? []) {
     if (seen.has(component.ticker)) continue;
     const card = byTicker.get(component.ticker);
     if (!card) continue;
-    basket.push(basketRow(card, component.weight, "new"));
+    basket.push(basketRow(card, component.weight, "new", report.marketMonthly));
   }
   return { ...assumptions, basket, tag: "edited" };
 }

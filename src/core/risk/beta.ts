@@ -14,6 +14,8 @@ export const DEFAULT_NONSYNC = ["TSM", "CHT", "BUD", "PSO"];
 export const MEASURED_LABEL = "measured";
 export const SHRUNK_LABEL = "Vasicek shrunk (not measured)";
 export const BLUME_LABEL = "Blume legacy toward 1 (not measured)";
+/** Fewer observations than this, and the slope is withheld. Four monthly points can print a beta of 11. */
+export const MIN_BETA_OBS = 24;
 
 export interface BetaEstimate {
   beta: number;
@@ -45,6 +47,7 @@ export function blumeBeta(raw: number): number {
  * The result lies between the raw slope and the prior whenever that weight is in [0, 1].
  */
 export function vasicekBeta(raw: number, se: number, prior: number, priorVar: number): { beta: number; weightOnSample: number } {
+  if (!Number.isFinite(raw)) return { beta: prior, weightOnSample: 0 };
   const se2 = Number.isFinite(se) ? se * se : Infinity;
   const pv = Math.max(0, priorVar);
   const denom = pv + se2;
@@ -53,10 +56,19 @@ export function vasicekBeta(raw: number, se: number, prior: number, priorVar: nu
   return { beta: weight * raw + (1 - weight) * prior, weightOnSample: weight };
 }
 
+function withheld(n: number, window: string): BetaEstimate {
+  return {
+    beta: NaN,
+    se: NaN,
+    n,
+    window,
+    measured: false,
+    label: `withheld: ${n} observations, need ${MIN_BETA_OBS}`,
+  };
+}
+
 function slope(y: number[], x: number[], window: string): BetaEstimate {
-  if (y.length < 5 || y.length !== x.length) {
-    return { beta: NaN, se: NaN, n: y.length, window, measured: true, label: MEASURED_LABEL };
-  }
+  if (y.length < MIN_BETA_OBS || y.length !== x.length) return withheld(y.length, window);
   const fit = ols(y, [Array(y.length).fill(1), x]);
   const se = fit.cov ? Math.sqrt(Math.max(0, fit.cov[1][1])) : NaN;
   return { beta: fit.coef[1], se, n: y.length, window, measured: true, label: MEASURED_LABEL };
@@ -65,9 +77,7 @@ function slope(y: number[], x: number[], window: string): BetaEstimate {
 /** Dimson β = β_{−1} + β_0 + β_{+1}. The standard error is the standard error of that sum. */
 export function dimsonBeta(asset: number[], market: number[]): BetaEstimate {
   const n = asset.length;
-  if (n < 8 || market.length !== n) {
-    return { beta: NaN, se: NaN, n: 0, window: "Dimson daily", measured: true, label: MEASURED_LABEL };
-  }
+  if (n < MIN_BETA_OBS + 2 || market.length !== n) return withheld(Math.max(0, n - 2), "Dimson daily");
   const y: number[] = [];
   const lag: number[] = [];
   const mid: number[] = [];
@@ -185,14 +195,14 @@ export function finishBeta(
     measured: false,
     label: SHRUNK_LABEL,
   };
-  const blumeValue = blumeBeta(partial.monthly.beta);
+  const monthlyReady = partial.monthly.n >= MIN_BETA_OBS && Number.isFinite(partial.monthly.beta);
   const blume: BetaEstimate = {
-    beta: blumeValue,
+    beta: monthlyReady ? blumeBeta(partial.monthly.beta) : NaN,
     se: NaN,
     n: partial.monthly.n,
     window: "monthly Blume",
     measured: false,
-    label: BLUME_LABEL,
+    label: monthlyReady ? BLUME_LABEL : `withheld: ${partial.monthly.n} monthly observations, need ${MIN_BETA_OBS}`,
   };
   const cited = partial.oneYear;
   const citation = Number.isFinite(cited.beta)

@@ -1,7 +1,7 @@
 {
   "name": "gao-modeling-toolkit",
   "private": true,
-  "version": "8.0.0",
+  "version": "9.0.0",
   "type": "module",
   "description": "Exploration toolkit for the Wharton Investment Competition Laura Gao case. Not an investment recommendation.",
   "scripts": {
@@ -17,6 +17,7 @@
     "reproduce": "vite-node scripts/reproduce.ts",
     "paper": "vite-node scripts/paper.ts",
     "perf": "vite-node scripts/perf.ts",
+    "bench": "vite-node scripts/bench.ts",
     "e2e": "playwright test",
     "mutate": "stryker run",
     "verify": "npm test && npm run build && npm run bend:laws && npm run parity && npm run parity-full && npm run verify-stats && npm run e2e",

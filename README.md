@@ -22,7 +22,29 @@ Open the URL Vite prints (usually `http://127.0.0.1:5173`).
 
 `npm run verify` runs the tests, the production build, the Bend laws, `npm run parity`, `npm run parity-full`, `npm run verify-stats`, and a headless walkthrough of every screen. `parity-full` checks the TypeScript year step against `reference/python/kernel.py` on twenty golden books and five richer ones. The specification is `docs/MODEL_SPEC.md`. `npm run paper` rebuilds `docs/METHODS.pdf`.
 
-Version 8 keeps a single portfolio engine. Optional overlays stay off until a flag is set. Analytics, exploration frontiers, citations, and the scenario library are screens for inputs you type. They do not choose a book. `examples/INTERNAL - example-book.html` is an export of the example CSV, not a strategy. `npm run perf` times priced mode at five mixes and 20,000 trials and checks the stored median. On 2026-10-13 that run took 1,805 ms, under the 3 second budget. The version 7 note recorded 26,209 ms for its priced timing sample.
+Version 9 keeps a single portfolio engine. Optional overlays stay off until a flag is set. Analytics, exploration frontiers, citations, and the scenario library are screens for inputs you type. They do not choose a book. `examples/INTERNAL - example-book.html` is an export of the example CSV, not a strategy. `npm run perf` times priced mode at five mixes and 20,000 trials and checks the stored median. On 2026-10-13 that run took 1,805 ms, under the 3 second budget. The version 7 note recorded 26,209 ms for its priced timing sample. `npm run bench` times the teaching parametric sample and is not part of `npm run verify`.
+
+## Two-minute CIO path
+
+The page does not recommend a book. These four screens are the walk.
+
+1. Decision. The sample on screen, with P(funded), p5, the median gift, and the 2031 range. Empty and error states sit at the top of every tab.
+
+   ![Decision](docs/figures/cio-decision.png)
+
+2. Assumptions. Load the teaching example only to see the charts move. The banner warns that the teaching curve is not stochastic, so the reserve is the stated 3% hurdle ($439,305.45), not $500,000.
+
+   ![Teaching warning](docs/figures/cio-teaching-warning.png)
+
+3. Curve. The sampler chart starts empty. Plot SE versus N draws pseudo-random, antithetic, and Sobol standard errors and can stop at a target standard error. The form trial count stays what you typed. Effective sample size is on the sample metrics.
+
+   ![Curve](docs/figures/cio-curve.png)
+
+4. Risk. The tab starts empty until a daily file is imported. Betas name their window. A monthly beta needs 24 observations.
+
+   ![Risk](docs/figures/cio-risk.png)
+
+The release sheet is `docs/RELEASE_V9.html`. `npm run reproduce -- examples/v9-demo-bundle.json` reruns the demo bundle.
 
 The holdings, trades, compare, stress, and decision tabs are a workflow for a book you type. The editor starts empty. `examples/` holds CSV shapes labeled as examples. Nothing in the app is a recommended portfolio. Downloaded file names start with `EXTERNAL - ` or `INTERNAL - `.
 

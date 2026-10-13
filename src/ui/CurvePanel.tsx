@@ -4,6 +4,7 @@ import equityExample from "../../examples/equity-annual-sample.csv?raw";
 import snapshotExample from "../../examples/curve-snapshot.csv?raw";
 import { backtestWindows, historyFromSnapshots, parseFrenchAnnual, type BacktestReport } from "../core/backtest";
 import { calibrateSnapshot, estimateDynamics, parseYieldCsv, type Calibration, type DynamicsEstimate } from "../core/calibrate";
+import { runUntilStandardError, samplerErrorCurve, type SamplerErrorPoint, type StoppedSample } from "../core/convergence";
 import { convergenceCurve, metricSpread, modelRisk, seedStability, type ConvergencePoint, type ModelRiskRow, type SeedRow } from "../core/diagnostics";
 import { FLOOR_POLICY, QUOTE_FLOOR } from "../core/nelson";
 import { useStore } from "../state";
@@ -28,6 +29,9 @@ export function CurvePanel() {
   const [seeds, setSeeds] = useState<SeedRow[] | null>(null);
   const [risk, setRisk] = useState<ModelRiskRow[] | null>(null);
   const [busy, setBusy] = useState(false);
+  const [lab, setLab] = useState<SamplerErrorPoint[] | null>(null);
+  const [stopped, setStopped] = useState<StoppedSample | null>(null);
+  const [labError, setLabError] = useState("");
 
   function fitText(text: string) {
     setSnapshotText(text);
@@ -55,6 +59,8 @@ export function CurvePanel() {
   const wealth = output.monteCarlo?.wealth2033 ?? [];
   const convergence: ConvergencePoint[] = wealth.length > 1 ? convergenceCurve(wealth, output.reserve.active.reserve) : [];
   const spread = risk ? metricSpread(risk, (row) => row.p50) : null;
+  const ess = output.metrics?.convergence.effectiveSamples;
+  const labSizes = lab ? [...new Set(lab.map((point) => point.trials))] : [];
 
   return (
     <section className="stack" id="curve-panel">
@@ -198,7 +204,55 @@ export function CurvePanel() {
             ariaLabel="Standard error of mean 2033 wealth versus number of trials"
             downloadName="convergence-se"
           />
-        ) : <p>Run a sample on Decision to plot the standard error against the trial count.</p>}
+        ) : <p role="status">Run a sample on Decision to plot the standard error against the trial count. This chart starts empty.</p>}
+        {ess ? (
+          <p>
+            Effective sample size in the current run: mean wealth {num(ess.meanWealth, 0)}, P(funded) {num(ess.funded, 0)}, drawdown {num(ess.drawdown, 0)}, Sharpe {num(ess.sharpe, 0)}.
+          </p>
+        ) : <p role="status">Effective sample size is blank until a sample has run.</p>}
+        <button
+          type="button"
+          id="run-convergence-lab"
+          disabled={busy}
+          onClick={() => {
+            setBusy(true);
+            setLabError("");
+            window.setTimeout(() => {
+              try {
+                setLab(samplerErrorCurve(assumptions, [50, 100, 200, 400]));
+                setStopped(runUntilStandardError(assumptions, 5000, { maxTrials: 400 }));
+              } catch (error) {
+                setLab(null);
+                setStopped(null);
+                setLabError(error instanceof Error ? error.message : "The convergence lab did not finish.");
+              }
+              setBusy(false);
+            }, 0);
+          }}
+        >
+          {busy ? "Running" : "Plot SE versus N"}
+        </button>
+        {labError ? <p className="alert" role="alert">{labError}</p> : null}
+        {lab && labSizes.length > 0 ? (
+          <LineChart
+            years={labSizes}
+            series={[
+              { name: "Pseudo-random", color: "#0e5f5a", values: lab.filter((point) => point.sampler === "pseudo").map((point) => point.standardError) },
+              { name: "Antithetic", color: "#1e3348", values: lab.filter((point) => point.sampler === "antithetic").map((point) => point.standardError) },
+              { name: "Sobol", color: "#8a4b08", values: lab.filter((point) => point.sampler === "sobol").map((point) => point.standardError) },
+            ]}
+            formatTick={(value) => num(value, 0)}
+            ariaLabel="Standard error of mean 2033 wealth versus trials for pseudo-random, antithetic, and Sobol draws"
+            downloadName="sampler-se"
+          />
+        ) : <p role="status" id="convergence-lab-empty">The sampler comparison starts empty. Plot SE versus N to fill it. The form trial count does not change.</p>}
+        {stopped ? (
+          <p role="status">
+            Auto-stop target SE of mean wealth $5,000, cap 400 trials: stopped at {stopped.trials} with SE {usd(stopped.standardError)}.
+            {stopped.stopped ? " The target was met." : " The target was not met inside the cap."}
+            {stopped.flag ? ` ${stopped.flag}` : ""}
+          </p>
+        ) : null}
         <button
           type="button"
           id="run-diagnostics"

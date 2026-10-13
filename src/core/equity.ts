@@ -95,11 +95,39 @@ export function heldCount(names: BasketName[]): number {
   return names.filter((name) => name.weight > 0).length;
 }
 
+/** Annual Poisson intensity. An explicit `jumpLambda` wins. Otherwise λ = −log(1−p). */
+export function jumpIntensity(name: { jumpLambda?: number; jumpProb: number }): number {
+  if (name.jumpLambda !== undefined && Number.isFinite(name.jumpLambda)) return Math.max(0, Math.min(50, name.jumpLambda));
+  const p = Math.min(0.999999, Math.max(0, name.jumpProb));
+  if (!(p > 0)) return 0;
+  return -Math.log(1 - p);
+}
+
+/** Inverse CDF of Poisson(λ) at a uniform in (0, 1). λ = 0 returns 0. */
+export function poissonCount(u: number, lambda: number): number {
+  if (!(lambda > 0) || !Number.isFinite(lambda) || !Number.isFinite(u)) return 0;
+  const target = Math.min(1 - 1e-12, Math.max(0, u));
+  let term = Math.exp(-lambda);
+  if (!Number.isFinite(term) || term === 0) return 0;
+  let cdf = term;
+  let count = 0;
+  const limit = Math.min(5000, Math.ceil(lambda + 20 * Math.sqrt(lambda) + 20));
+  while (cdf < target && count < limit) {
+    count += 1;
+    term *= lambda / count;
+    cdf += term;
+    if (!Number.isFinite(term)) break;
+  }
+  return count;
+}
+
 /**
  * One-factor single-name return.
- * r = α + β r_m + sector beta × sector shock + idiosyncratic Student-t, plus an optional jump,
- * then USD/TWD (or any fxSigma) and an optional geopolitical jump.
- * Scenario paths use the expected jump and the expected FX jump instead of a draw.
+ * r = α + β r_m + sector beta × sector shock + idiosyncratic Student-t
+ * + a compensated compound-Poisson jump (α_jump = −λ E[size]),
+ * then USD/TWD (or any fxSigma) and a compensated geopolitical jump.
+ * The jump uniform stays on stream 6, dimension 8000+index, so other coordinates do not move.
+ * Scenario paths use the compensated mean, which is zero.
  */
 export function singleNameReturn(args: {
   name: BasketName;
@@ -115,8 +143,8 @@ export function singleNameReturn(args: {
 }): number {
   const { name } = args;
   let idiosyncratic = 0;
-  let jump = name.jumpProb * name.jumpMean;
-  let fx = name.geoJumpProb * name.geoJumpMean;
+  let jump = 0;
+  let fx = 0;
   if (args.mode === "mc") {
     if (args.sharedScale !== undefined && args.sharedScale > 0) {
       const z = standardNormal(args.seed, STREAM.idio, args.trial, args.year, args.index * 40);
@@ -124,12 +152,14 @@ export function singleNameReturn(args: {
     } else {
       idiosyncratic = name.idioSigma * studentT(args.seed, STREAM.idio, args.trial, args.year, args.index * 40, name.studentDf);
     }
+    const lambda = jumpIntensity(name);
     const jumpDraw = unitInterval(args.seed, STREAM.idio, args.trial, args.year, 8000 + args.index);
-    jump = jumpDraw < name.jumpProb ? name.jumpMean : 0;
+    const count = poissonCount(jumpDraw, lambda);
+    jump = (count - lambda) * name.jumpMean;
     const fxShock = standardNormal(args.seed, STREAM.idio, args.trial, args.year, 9000 + args.index);
-    fx = name.fxSigma * fxShock;
     const geoDraw = unitInterval(args.seed, STREAM.idio, args.trial, args.year, 11000 + args.index);
-    if (geoDraw < name.geoJumpProb) fx += name.geoJumpMean;
+    const geo = geoDraw < name.geoJumpProb ? name.geoJumpMean : 0;
+    fx = name.fxSigma * fxShock + geo - name.geoJumpProb * name.geoJumpMean;
   }
   let result = name.alpha + name.beta * args.market + name.sectorBeta * args.sectorShock + idiosyncratic + jump;
   if (fx !== 0) result = (1 + result) * (1 + fx) - 1;

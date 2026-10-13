@@ -51,6 +51,114 @@ export function accruedInterest(coupon: number, yearsToMaturity: number, face = 
   return (coupon / frequency) * face * (elapsed / period);
 }
 
+/**
+ * Illustrative settlement for dated accrued examples. Not a trade and not an input to `runModel`.
+ */
+export const WINS_SETTLEMENT = "2026-02-20";
+
+export type DayCount = "act_act" | "thirty_360";
+
+export interface PeriodFraction {
+  elapsed: number;
+  period: number;
+  fraction: number;
+}
+
+export interface DatedAccrual {
+  convention: DayCount;
+  elapsed: number;
+  period: number;
+  /** Coupon-period fraction. Negative inside an ex-coupon window. */
+  fraction: number;
+  exCoupon: boolean;
+  accrued: number;
+  dirtyFromClean: (clean: number) => number;
+}
+
+function parseIso(iso: string): { y: number; m: number; d: number } | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  if (!match) return null;
+  const y = Number(match[1]);
+  const m = Number(match[2]);
+  const d = Number(match[3]);
+  if (m < 1 || m > 12 || d < 1 || d > 31) return null;
+  const probe = new Date(Date.UTC(y, m - 1, d));
+  if (probe.getUTCFullYear() !== y || probe.getUTCMonth() !== m - 1 || probe.getUTCDate() !== d) return null;
+  return { y, m, d };
+}
+
+/** Calendar days from start to end. ACT/ACT ICMA uses this count. */
+export function calendarDays(start: string, end: string): number {
+  const a = parseIso(start);
+  const b = parseIso(end);
+  if (!a || !b) return Number.NaN;
+  const utc = (parts: { y: number; m: number; d: number }) => Math.round(Date.UTC(parts.y, parts.m - 1, parts.d) / 86_400_000);
+  return utc(b) - utc(a);
+}
+
+/** 30/360 US (NASD) day count. February month-end is not rewritten to 30. */
+export function thirty360UsDays(start: string, end: string): number {
+  const a = parseIso(start);
+  const b = parseIso(end);
+  if (!a || !b) return Number.NaN;
+  let d1 = a.d;
+  let d2 = b.d;
+  if (d1 === 31) d1 = 30;
+  if (d2 === 31 && d1 >= 30) d2 = 30;
+  return 360 * (b.y - a.y) + 30 * (b.m - a.m) + (d2 - d1);
+}
+
+export function actActIcma(prevCoupon: string, settle: string, nextCoupon: string): PeriodFraction {
+  const elapsed = calendarDays(prevCoupon, settle);
+  const period = calendarDays(prevCoupon, nextCoupon);
+  if (!(period > 0) || !Number.isFinite(elapsed)) return { elapsed: Number.NaN, period: Number.NaN, fraction: Number.NaN };
+  return { elapsed, period, fraction: elapsed / period };
+}
+
+export function thirty360Period(prevCoupon: string, settle: string, nextCoupon: string): PeriodFraction {
+  const elapsed = thirty360UsDays(prevCoupon, settle);
+  const period = thirty360UsDays(prevCoupon, nextCoupon);
+  if (!(period > 0) || !Number.isFinite(elapsed)) return { elapsed: Number.NaN, period: Number.NaN, fraction: Number.NaN };
+  return { elapsed, period, fraction: elapsed / period };
+}
+
+/**
+ * Dated accrued interest. Treasuries use ACT/ACT ICMA. Corporates use 30/360 US.
+ * Inside the ex-coupon window the fraction is (elapsed − period) / period, so accrued is negative
+ * and the dirty price is clean plus that negative accrual.
+ */
+export function accruedAtSettlement(args: {
+  coupon: number;
+  face?: number;
+  frequency?: number;
+  prevCoupon: string;
+  settle: string;
+  nextCoupon: string;
+  convention: DayCount;
+  exCouponDays?: number;
+}): DatedAccrual {
+  const face = args.face ?? 1;
+  const frequency = args.frequency ?? 2;
+  const couponCash = (args.coupon / frequency) * face;
+  const span = args.convention === "act_act"
+    ? actActIcma(args.prevCoupon, args.settle, args.nextCoupon)
+    : thirty360Period(args.prevCoupon, args.settle, args.nextCoupon);
+  const daysToNext = calendarDays(args.settle, args.nextCoupon);
+  const window = args.exCouponDays ?? 0;
+  const exCoupon = window > 0 && Number.isFinite(daysToNext) && daysToNext >= 0 && daysToNext < window;
+  const fraction = exCoupon && span.period > 0 ? (span.elapsed - span.period) / span.period : span.fraction;
+  const accrued = Number.isFinite(fraction) ? couponCash * fraction : Number.NaN;
+  return {
+    convention: args.convention,
+    elapsed: span.elapsed,
+    period: span.period,
+    fraction,
+    exCoupon,
+    accrued,
+    dirtyFromClean: (clean: number) => clean + accrued,
+  };
+}
+
 /** Dirty price is the sum of cash flows discounted on the quoted curve. */
 export function dirtyFromCashFlows(flows: CashFlow[], yieldAt: YieldFn): number {
   let total = 0;
