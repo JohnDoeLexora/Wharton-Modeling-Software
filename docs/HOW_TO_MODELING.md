@@ -155,7 +155,7 @@ Call order does not matter. Trial 0 does not change if you raise the trial count
 | Credit | 5 | Calendar year | Sleeve index | Default draw for a credit sleeve |
 | Single name | 6 | Calendar year | Name, jump, FX, and sector indexes | Idiosyncratic, jump, currency, and sector shocks |
 
-The conditional 2031→2033 band does **not** open a new seed. It reuses stream 1 at calendar years 2031 and 2032 and the same trial index. That is common random numbers with the full-horizon sample. Wealth is restarted at the anchor and at the 2031 policy weights. Balances that had drifted before 2031 are not carried into that restart. With annual rebalancing, trial t started from trial t’s own 2031 wealth lands on trial t’s 2033 wealth. With drift, the sleeve shocks still match and the balances do not, because the restart puts the anchor back on the policy mix. Compared mixes on the assumptions tab use the same seed and the same streams. Adding a mix does not redraw the main sample.
+The conditional 2031→2033 band does **not** open a new seed. It reuses stream 1 at calendar years 2031 and 2032 and the same trial index, and it calls the same year step as the full path, including the crash overlay and rebalancing costs. The 2031 rebalance is not charged a second time. With annual rebalancing, trial t started from trial t’s own 2031 wealth lands on trial t’s 2033 wealth. With drift, that identity holds when the continuation starts from the stored 2031 balances, not from policy weights times wealth. Compared mixes replay the same return schedule in one pass. Adding a mix does not redraw the main sample. A second report bins even trials by 2031 wealth and short rate and scores odd trials against that p10–p90 band.
 
 Stream 2 is a different asset on purpose. Trial t of the reserve can be discussed next to trial t of the portfolio, and the shocks are not the portfolio’s shocks. Do not describe them as one shared history of market returns. Do describe them as one master seed with named streams.
 
@@ -321,7 +321,7 @@ Three methods are always shown. You mark one as the primary draft. The draft sen
 
 2. **Full-horizon percentile band.** Draws start in 2027 from the case contributions and your return model. At each draw’s 2033 wealth, the reserve is removed and the marked rule is applied. The band runs from the low percentile you set to the high percentile you set. The sentence also reports the share of **this sample** that landed inside the band, and the share of draws in which 2033 wealth does not cover the reserve. Those are counts. They are not a promise that the gift will land in the band.
 
-3. **Conditional two-year band.** This is the problem as it looks in 2031, once that morning’s wealth is known. You anchor on the bear, base, or bull 2031 wealth, on the sample median, or on a number you type. The app then applies the portfolio stream’s 2031 and 2032 shocks, the same trial index as the full-horizon sample, starting from that anchor at the 2031 policy weights. It does not open a new seed. From the team’s seat in 2026, this method describes a **rule** for what to say later (“given the portfolio we actually have in 2031, communicate the 10th to 90th percentile of the two-year sample”). The full-horizon band describes the range of gifts implied by today’s assumptions, before 2031 wealth is known. They answer different questions. Report which one you mean.
+3. **Conditional two-year band.** This is the problem as it looks in 2031, once that morning’s wealth is known. You anchor on the bear, base, or bull 2031 wealth, on the sample median, or on a number you type. The app then applies the same year step as the full path for 2031 (return only; the rebalance already happened), 2032, and the 2033 rebalance. Crash and costs are included. It does not open a new seed. From the team’s seat in 2026, this method describes a **rule** for what to say later (“given the portfolio we actually have in 2031, communicate the 10th to 90th percentile of the two-year sample”). The full-horizon band describes the range of gifts implied by today’s assumptions, before 2031 wealth is known. They answer different questions. Report which one you mean.
 
 A draw that cannot fund the reserve contributes $0 to the facility. The range can therefore include zero because the operating commitment comes first, not because the rule is stingy.
 
@@ -413,9 +413,15 @@ Sentiment does not enter `runModel`. There is no optimizer.
 
 ## Correlation stress
 
-The typed matrix is the Gaussian copula of the parametric model. A stress number is added to every off-diagonal and the result is clipped to ±0.999. Zero stress leaves the typed matrix unchanged. The diagonal stays 1.
+The typed matrix is the Gaussian copula of the parametric model. A stress weight between 0 and 1 blends each off-diagonal toward +1 or −1 without flipping its sign. A zero stays zero. The weight is cut back if a larger blend would not be positive semidefinite. Zero stress leaves the typed matrix unchanged. The diagonal stays 1.
 
-If the minimum eigenvalue is below −1e−8, the matrix is not positive semidefinite and a correlation factor cannot be built honestly. The engine clips negative eigenvalues to zero, restores a unit diagonal, and says so. Monte Carlo then uses the repaired matrix, not the one you typed. A warning on the assumption inspector is the signal. Do not quote the typed entries as if they were the ones in the sample.
+If the matrix cannot be factored, the run stops. Sleeves are not drawn independently. Higham’s nearest correlation is applied only when you select that repair, and the inspector says so. A seed that is not an integer from 0 through 2^32−1 is rejected. It is not rounded and it is not wrapped.
+
+Rebalancing cost is charged on the gap between drifted weights and this year’s policy, plus the same rate on new cash. A flat glide still pays that cost when the sleeves earn different returns. Max drawdown is the peak-to-trough drop of a unit NAV. A contribution does not set a new peak.
+
+P(fully funded) is the share of trials whose beginning-of-2033 wealth covers that trial’s reserve. Trial-curve mode prices the ten payments on the trial’s own 2033 curve. Fixed-yield mode uses one discount yield on every trial and is labeled that way. The example book’s curve is a flat zero, so that present value is $500,000. The 3% ladder is still shown as the ladder method. Standard errors are batch means, including the reserve quantile when the shortfall method is active.
+
+The 2031 communication range can also be scored against the full market state at the beginning of 2031: wealth and, when the short rate moves, the short rate. Even trials set the bin edges. Odd trials are scored and do not move those edges. The screen reports that out-of-sample coverage with a normal-approximation interval.
 
 Block bootstrap ignores the matrix. The dependence is whatever dependence is in the rows you typed.
 
@@ -490,7 +496,8 @@ Export **Run package JSON** for the appendix. One file contains:
 - the projection, reserve, and facility CSV text
 - the liability schedule
 - the tolerances named below
-- a methodology footnote: method names, master seed, stream ids, shock model, whether correlation was repaired, software version, and git commit
+- a methodology footnote: method names, master seed, stream ids, shock model, whether correlation was repaired, software version, git commit, the data as-of date, and the Treasury and French file hashes
+- a per-trial CSV and a per-trial Parquet file, each stamped with that same provenance
 
 The hash identifies inputs. The commit identifies formulas. A matching hash under a different commit is not the same experiment. The export time is not part of the hash.
 
@@ -505,7 +512,7 @@ These are the mistakes that make a careful table say something it does not mean.
 - **Pasting the teaching example into a deliverable.** Those numbers exist so charts move. They are labeled as not a strategy.
 - **Mixing μ with the scenario base return.** μ feeds Monte Carlo. The base column feeds the base path. They can be equal. They are not the same input. The sensitivity table is the check.
 - **Treating stream 2 as the portfolio’s shocks.** Same seed, same trial index, different stream, different asset.
-- **Treating the conditional band as a fresh independent sample.** It reuses 2031 and 2032 portfolio shocks. It does restart the balances at the policy mix, so a drifted portfolio and the conditional band are not the same wealth path.
+- **Treating the conditional band as a fresh independent sample.** It reuses the 2031 and 2032 portfolio shocks and the same year step as the main path, including costs and a crash. In drift mode it continues from the stored 2031 balances. It is not a new draw.
 - **Reading a funded ratio of 1 as “safe.”** It means matched at the yield you typed.
 - **Typing a custom reinvestment path and thinking the reserve was resized.** Sizing still uses the method rate. The schedule then shows the gap. That gap is the point.
 - **Inflating the $50,000.** The case payments are nominal. Inflation changes only the real-wealth column.

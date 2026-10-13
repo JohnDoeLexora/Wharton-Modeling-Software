@@ -1,8 +1,31 @@
 # Build status
 
-Schema 3 of the TypeScript workspace is the interactive toolkit (`npm run dev`), now at app version 6.0.0. The Bend 2 package in `bend/` is the reference for the locked arithmetic. Neither engine contains a recommended portfolio, reserve, facility contribution, or co-sponsor range. The holdings editor starts empty. The Risk tab starts empty until a history is imported.
+Schema 3 of the TypeScript workspace is the interactive toolkit (`npm run dev`), now at app version 7.0.0. The Bend 2 package in `bend/` is the reference for the locked arithmetic. Neither engine contains a recommended portfolio, reserve, facility contribution, or co-sponsor range. The holdings editor starts empty. The Risk tab starts empty until a history is imported. Case cash flows are unchanged: beginning-of-2033 wealth on the zero-return path is $450,000, and the 0% ladder is $500,000.
 
 Checked on 2026-10-12.
+
+## What changed in V7
+
+One year-step function (`stepYear`) is shared by the main path, the 2031–2033 continuation, comparison mixes, and the Python parity fixture. Bend laws cover the same cost and crash identities in integer arithmetic. A correlation that cannot be factored stops the run unless Higham repair is selected. Stress blends toward a sign-preserving target. Seeds outside the integers 0 through 2^32−1 are rejected. Rebalancing cost uses drifted weights. Max drawdown is the peak-to-trough drop of a unit NAV. The teaching example prices the reserve on each trial’s 2033 curve; fixed yield stays available and is labeled. Batch-means standard errors cover the headline metrics, including the reserve quantile under the shortfall method. Sobol with a Brownian bridge and antithetic draws are optional. The default sampler stays pseudo-random. Inflation volatility and the gain-tax rate default to zero. Exports include a per-trial CSV and Parquet file stamped with the data as-of date (2026-10-08), seed, version, and git commit.
+
+Trial count stays the number on the assumptions form (50 to 20,000). The screen reports standard errors so that count can be raised. It does not stop early at a target standard error. A separate TIPS reserve portfolio and a donor-advised-fund tax on the gift are not in this cut. Expense ratios and a taxable gain tax (default zero) are.
+
+### Headline numbers on the teaching example
+
+Computed on the labeled teaching book, 1,000 trials, seed 42. Nominal wealth did not move when the reserve switch changed. The zero-cost base path still compounds at 5% to beginning-of-2033 wealth $593,470.93.
+
+- Rebalancing cost, scenario base path: $593,470.93 at 0 bps, $590,343.95 at 50 bps, and $0 at 10,000 bps. The teaching book itself is 0 bps, so its sample median is not a cost effect.
+- Reserve. Trial-curve mode, which this book uses, prices every trial at $500,000 because the teaching curve is a flat zero. P(fully funded) is 0.779 and the mean facility gift is $91,694. The same book on the fixed 3% ladder ($439,305.45) has P(fully funded) 0.924 and a mean gift of $152,389. Median 2033 wealth is $582,525.51 either way.
+- Standard errors on that trial-curve sample: mean $3,276.47, P(funded) 0.0128, p50 $4,820.71, reserve $0 (every trial has the same reserve).
+- Max drawdown. On the first 200 trials the wealth-peak mean is 0.1129 and the unit-NAV mean is 0.1163. The published 1,000-trial mean max drawdown is the unit-NAV figure, 0.1139.
+- Sharpe on that sample is 0.602, the mean of per-trial Sharpes against a cash yield of 0. The normal-floor bias is blank because the book is lognormal.
+- Priced mode, 5 mixes, 20,000 trials: 282,021 ms before the shared schedule and the price cache, 26,209 ms after. Median wealth $537,384.48 both times. Errors empty. That is not the two-second target in the review.
+
+## Verification on 2026-10-12 (V7)
+
+- `npm run verify` exited 0. That is 116 Vitest tests, `npm run build`, `bend bend/laws/LAWS.bend --verdict` and `bend bend/laws/FAN.bend --verdict` each printing `ALL PROOFS CHECK`, and parity. Parity matched 71 deterministic keys. The 200-trial parametric sample still agrees with Python: P(funded) 0.72, p5 391938.17, p50 555189.44. Pathwise, the same random numbers agree within 4.657e-10 (zero cost) and 2.328e-10 (50 bps and a 2032 crash of −0.4) over 200 trials.
+- The review repro prints base 2033 wealth 593470.93 at 0 bps and 0 at 10,000 bps. A 2032 crash of −0.4 gives trial 0 wealth 395284.93 on the full path and on the continuation from that trial’s own 2031 wealth. A 50 bps glide from 80/20 to 40/60 gives 672643.46 on both. Seed −42 throws: it is not run as seed 42.
+- Headless Chrome on the production preview walked Assumptions, Projections, Operating reserve, Facility & range, and Export. Switching the reserve onto each trial’s own 2033 curve put that definition under P(fully funded). Export showed Per-trial CSV, Per-trial Parquet, data as of 2026-10-08, and version 7.0.0. The page does not contain “we recommend”. Document `scrollWidth` matched `clientWidth` at 1280×900 (1265) and at 390×844 (390).
 
 ## What changed in V6
 

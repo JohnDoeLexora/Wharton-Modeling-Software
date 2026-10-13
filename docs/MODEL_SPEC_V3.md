@@ -32,5 +32,6 @@ Annual total return for a bond sleeve with modified duration D and convexity C:
 
 ## 5. Rigor
 - Counter-based seeded RNG streams (portfolio, rates, credit, idio) so runs reproduce; common random numbers across compared mixes.
-- Convergence check (standard error of key metrics; increase trials until SE small).
+- Convergence check (batch-means standard error of the mean, percentiles, CVaR, funded probability, drawdown, Sharpe, and the reserve quantile; increase trials until SE small).
+- One year-step function for the main path, the 2031–2033 continuation, mixes, and the Python parity fixture. Rebalancing cost uses drifted weights. A non-factorable correlation is an error unless Higham repair is selected. Trial-curve reserves use each trial’s 2033 discount factors. Sobol with a Brownian bridge and antithetic draws are optional. The default sampler stays pseudo-random.
 - Every assumption in one table with source/justification; scenario sweeps written to CSV/JSON.

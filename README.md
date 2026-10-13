@@ -53,7 +53,7 @@ The in-app **How to model** tab is the same text as [docs/HOW_TO_MODELING.md](do
 
 ## What you can do in the app
 
-- Edit sleeve returns, volatility, a glide path, correlation (with an optional off-diagonal stress), inflation (purchasing-power view only), and the Monte Carlo sample size and seed.
+- Edit sleeve returns, volatility, a glide path, correlation (with a sign-preserving stress blend), inflation (purchasing-power view only), and the Monte Carlo sample size and seed. A seed outside 0 … 2^32−1 is rejected. A correlation that cannot be factored is an error unless you select Higham repair.
 - Choose a sleeve’s pricing: parametric μ/σ, T-bills, intermediate Treasuries, long Treasuries, credit, a fat-tailed equity index, or a satellite basket. Bond and credit placeholders that appear when you switch pricing are labeled assumptions.
 - Pick a rate regime and a curve. Nelson-Siegel is the default. The three-point curve remains for a model-risk comparison. The regime button copies an illustration into the drift fields and leaves the short-rate level and the mean-reversion speed as you typed them. Quoted yields do not go below zero.
 - Fit an imported Treasury curve, price a bond from its cash flows, and read an immunization gap against the ten $50,000 payments.
@@ -61,11 +61,11 @@ The in-app **How to model** tab is the same text as [docs/HOW_TO_MODELING.md](do
 - Import a daily price history and read EWMA, GARCH, realized vol, raw and Vasicek betas, fitted jumps, a correlation heatmap, and a VaR coverage backtest. Copy those estimates onto the satellite basket when you want the projection to use them.
 - Project beginning-of-year wealth from 2027 through 2042 on bear, base, and bull paths, plus percentiles of a seeded sample, including p1. One master seed feeds six named streams: portfolio, reserve, bootstrap, short rate, credit default, and single-name shocks. The 2031–2033 conditional band reuses the portfolio stream. Compared mixes reuse the same seed.
 - Read mark-to-market wealth next to hold-to-maturity wealth, so a rate rise shows up as a price term on a long bond and a small price term on a bill.
-- Compare four operating-reserve methods against the ten $50,000 payments, which stay visible as a schedule. A second table shows present-value, nominal $500,000, T-bill, and duration-matched sizes under each rate-regime template.
+- Compare four operating-reserve methods against the ten $50,000 payments, which stay visible as a schedule. Trial-curve mode prices each trial on its own 2033 curve. Fixed-yield mode uses one discount yield and says so. A second table shows present-value, nominal $500,000, T-bill, and duration-matched sizes under each rate-regime template.
 - Apply facility rules only to wealth left after the reserve, and build a 2031 communication range by scenario envelope, full-horizon percentiles, or a two-year conditional sample.
 - Inspect effective weights, the correlation matrix actually used, and the case contribution schedule. Compute local one-at-a-time sensitivities when you ask. Save named runs and compare two of them.
 - Type a holdings book, check it against editable competition rules, and export a trade sheet of whole shares or bond face. Compare two books on one seed. Run crash, Taiwan-jump, fat-tail, lower-drift, and higher-volatility stresses. The decision tab shows P(funded), p5, the median gift, the 2031 range, the worst regime template, and the worst stress already run.
-- Export a run package (assumptions, results, CSV, methodology footnote) for an appendix, or a one-page annotated HTML file. File names are tagged EXTERNAL or INTERNAL.
+- Export a run package (assumptions, results, CSV, methodology footnote) for an appendix, a per-trial CSV or Parquet file, or a one-page annotated HTML file. Every export carries the data as-of date, seed, version, and git commit. File names are tagged EXTERNAL or INTERNAL.
 - Optionally score headlines and save the scores as research notes. Notes never enter the projection.
 
 The certainty definition box starts empty. The case asks the team to write that sentence.
