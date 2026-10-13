@@ -3,7 +3,8 @@ import { FIRST_PROJECTION_YEAR, LAST_PROJECTION_YEAR } from "./case";
 import { equityKernel, sectorShockAt, singleNameReturn } from "./equity";
 import { correlatedShocks, normalizeSeed, simpleReturn } from "./math";
 import { ratePath, type EvolvedRate } from "./rates";
-import { STREAM, unitInterval } from "./rng";
+import { effectiveDuration, issuerDefaultProbability, kernelEngaged, regimeDragAt, sectorFxReturn, sharedStudentScale, stepIgSpread, IG_DIM } from "./kernel";
+import { STREAM, standardNormal, unitInterval } from "./rng";
 import { portfolioNormals } from "./shocks";
 import type { Assumptions, BasketName, ScenarioName, Sleeve, SleeveKind } from "./types";
 
@@ -66,6 +67,7 @@ function basketPortfolioReturn(args: {
   trial: number;
   year: number;
   sectorSigma: number;
+  sharedScale?: number;
 }): number {
   let total = 0;
   for (const name of args.names) if (name.weight > 0) total += name.weight;
@@ -96,6 +98,7 @@ function basketPortfolioReturn(args: {
       seed: args.seed,
       trial: args.trial,
       year: args.year,
+      sharedScale: args.sharedScale,
     });
     result += (name.weight / total) * single;
   });
@@ -109,12 +112,15 @@ function defaultLoss(args: {
   seed: number;
   trial: number;
   year: number;
+  /** Overrides the sleeve default probability. Used by the issuer-credit overlay. MODEL_SPEC §7.5. */
+  probability?: number;
 }): number {
   const lossGivenDefault = 1 - args.sleeve.recovery;
-  if (!(args.sleeve.defaultProb > 0) || !(lossGivenDefault > 0)) return 0;
-  if (args.mode === "scenario") return args.sleeve.defaultProb * lossGivenDefault;
+  const probability = args.probability ?? args.sleeve.defaultProb;
+  if (!(probability > 0) || !(lossGivenDefault > 0)) return 0;
+  if (args.mode === "scenario") return probability * lossGivenDefault;
   const draw = unitInterval(args.seed, STREAM.credit, args.trial, args.year, args.index);
-  return draw < args.sleeve.defaultProb ? lossGivenDefault : 0;
+  return draw < probability ? lossGivenDefault : 0;
 }
 
 /**
@@ -182,6 +188,10 @@ export function fillPricedSchedule(
   );
   const equitySleeve = assumptions.sleeves.find((sleeve) => sleeveKindOf(sleeve) === "equity_index");
   const wantParametric = mode === "mc" && assumptions.sleeves.some((sleeve) => sleeveKindOf(sleeve) === "parametric");
+  const flags = assumptions.kernel;
+  const engaged = kernelEngaged(flags);
+  let regimeState = 0;
+  const igState = assumptions.sleeves.map((sleeve) => sleeve.spread);
   const sleeves = assumptions.sleeves;
   const n = sleeves.length;
   let years = 0;
@@ -212,6 +222,16 @@ export function fillPricedSchedule(
       rateShock: row.shock,
     });
     const market = marketReturn({ assumptions, kernel, equitySleeve });
+    let drag = 0;
+    if (engaged && flags?.markovRegimes) {
+      const stepped = regimeDragAt({ flags, seed: assumptions.seed, trial, year, state: regimeState });
+      regimeState = stepped.state;
+      drag = stepped.drag;
+    }
+    const sharedScale =
+      engaged && flags?.sharedStudent
+        ? sharedStudentScale(assumptions.seed, trial, year, equitySleeve?.studentDf ?? assumptions.equity.studentDf)
+        : undefined;
     const draws = wantParametric ? parametricDraws(assumptions, trial, year, args.factor) : [];
     const mtm = dest.mtm[written];
     const htm = dest.htm[written];
@@ -248,21 +268,49 @@ export function fillPricedSchedule(
           trial,
           year,
           sectorSigma: assumptions.equity.sectorSigma,
+          sharedScale,
         });
         mtmReturn = basket;
         htmReturn = basket;
       } else if (isBondKind(kind)) {
         const treasuryPrev = treasuryYield(kind, row);
         const treasuryNext = treasuryYield(kind, next);
-        const spreadNow = sleeve.spread;
-        const spreadNext = kind === "credit" ? sleeve.spread + sleeve.spreadBeta * Math.max(0, -market) : sleeve.spread;
-        const loss = kind === "credit" ? defaultLoss({ sleeve, index: sleeveIndex, mode, seed: assumptions.seed, trial, year }) : 0;
+        let spreadNow = sleeve.spread;
+        let spreadNext = kind === "credit" ? sleeve.spread + sleeve.spreadBeta * Math.max(0, -market) : sleeve.spread;
+        if (engaged && flags?.igSpread && kind === "credit") {
+          spreadNow = igState[sleeveIndex];
+          const shock = standardNormal(assumptions.seed, STREAM.credit, trial, year, IG_DIM + sleeveIndex);
+          spreadNext = stepIgSpread({
+            spread: spreadNow,
+            kappa: flags.igKappa ?? 0.3,
+            theta: flags.igTheta ?? sleeve.spread,
+            sigma: flags.igSigma ?? 0.005,
+            shock,
+            equity: market,
+            spreadBeta: sleeve.spreadBeta,
+          });
+          igState[sleeveIndex] = spreadNext;
+        }
+        const probability =
+          engaged && flags?.issuerCredit && kind === "credit"
+            ? issuerDefaultProbability(sleeve.defaultProb, flags.issuerBeta ?? 1, market)
+            : undefined;
+        const loss = kind === "credit" ? defaultLoss({ sleeve, index: sleeveIndex, mode, seed: assumptions.seed, trial, year, probability }) : 0;
         const yieldPrev = treasuryPrev + (kind === "credit" ? spreadNow : 0);
         const yieldNext = treasuryNext + (kind === "credit" ? spreadNext : 0);
         const dy = yieldNext - yieldPrev;
-        priceTerm = -sleeve.duration * dy + 0.5 * sleeve.convexity * dy * dy;
+        const duration = engaged ? effectiveDuration(sleeve, year, flags, FIRST_PROJECTION_YEAR) : sleeve.duration;
+        priceTerm = -duration * dy + 0.5 * sleeve.convexity * dy * dy;
         mtmReturn = yieldPrev + priceTerm - loss;
         htmReturn = yieldPrev - loss;
+      }
+      if (engaged && flags?.markovRegimes && (kind === "equity_index" || kind === "basket")) {
+        mtmReturn += drag;
+        htmReturn += drag;
+      }
+      if (engaged && flags?.sectorFx && kind === "equity_index") {
+        mtmReturn = sectorFxReturn({ base: mtmReturn, flags, seed: assumptions.seed, trial, year });
+        htmReturn = mtmReturn;
       }
       if (assumptions.crashYear != null && assumptions.crashYear === year && !isBondKind(kind)) {
         const shock = assumptions.crashShock ?? 0;

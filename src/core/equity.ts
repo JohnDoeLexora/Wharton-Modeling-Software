@@ -110,13 +110,20 @@ export function singleNameReturn(args: {
   seed: number;
   trial: number;
   year: number;
+  /** Unit-variance divisor. Set only when the shared-chi overlay is on. MODEL_SPEC §7.2. */
+  sharedScale?: number;
 }): number {
   const { name } = args;
   let idiosyncratic = 0;
   let jump = name.jumpProb * name.jumpMean;
   let fx = name.geoJumpProb * name.geoJumpMean;
   if (args.mode === "mc") {
-    idiosyncratic = name.idioSigma * studentT(args.seed, STREAM.idio, args.trial, args.year, args.index * 40, name.studentDf);
+    if (args.sharedScale !== undefined && args.sharedScale > 0) {
+      const z = standardNormal(args.seed, STREAM.idio, args.trial, args.year, args.index * 40);
+      idiosyncratic = name.idioSigma * (z / args.sharedScale);
+    } else {
+      idiosyncratic = name.idioSigma * studentT(args.seed, STREAM.idio, args.trial, args.year, args.index * 40, name.studentDf);
+    }
     const jumpDraw = unitInterval(args.seed, STREAM.idio, args.trial, args.year, 8000 + args.index);
     jump = jumpDraw < name.jumpProb ? name.jumpMean : 0;
     const fxShock = standardNormal(args.seed, STREAM.idio, args.trial, args.year, 9000 + args.index);

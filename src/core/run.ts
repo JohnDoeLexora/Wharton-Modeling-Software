@@ -13,6 +13,7 @@ import {
   CONVERGENCE_NOTE,
   wealthPercentileRecord,
 } from "./metrics";
+import { kernelReportFrom } from "./kernel";
 import { normalFloorAdjustment, normalizeSeed, percentile, percentiles, seedProblem } from "./math";
 import { priceTrial, usesPricedModel } from "./pricing";
 import { buildSchedule, continueFromBalances, projectPath, walkTrial, wealthInYear, type ReturnSchedule } from "./project";
@@ -243,8 +244,15 @@ const VIEW_FORMULA =
   "Mark-to-market wealth uses the duration price term. Hold-to-maturity wealth earns the beginning yield (and any default loss) and ignores the price term. " +
   "A bill with a short duration shows a small price term. A long bond shows about −duration × the yield change. Neither figure is a forecast.";
 
+export interface ProgressSnapshot {
+  p5: number;
+  p50: number;
+  p95: number;
+}
+
 export interface RunHooks {
-  onProgress?: (done: number, total: number) => void;
+  /** `snapshot` is the wealth percentiles of the trials finished so far. Omitted when the hook is absent. */
+  onProgress?: (done: number, total: number, snapshot?: ProgressSnapshot) => void;
 }
 
 function blankStreams(seed: number) {
@@ -510,7 +518,9 @@ export function runModel(assumptions: Assumptions, hooks?: RunHooks): ModelOutpu
       conditionalInline.push(continueFromBalances(assumptions, anchorBal, anchorHtm, trial, returns, mainPolicy));
     }
     if (hooks?.onProgress && (trial % 50 === 49 || trial + 1 === assumptions.trials)) {
-      hooks.onProgress(trial + 1, assumptions.trials);
+      const done = trial + 1;
+      const snapshot = done === assumptions.trials || done % 50 === 0 ? streamingPercentiles(wealth2033) : undefined;
+      hooks.onProgress(done, assumptions.trials, snapshot);
     }
   }
 
@@ -564,6 +574,7 @@ export function runModel(assumptions: Assumptions, hooks?: RunHooks): ModelOutpu
   const comparison = samplerConvergence(masterSeed);
   const control = controlVariateNote(assumptions, wealth2033, sleeve0);
   const mixes = mixPlans.map((plan) => scoreStoredMix(plan, wealth2033, reserves, assumptions));
+  const kernelReport = kernelReportFrom({ flags: assumptions.kernel, wealth2031, gift: gifts });
 
   return {
     disclaimer: DISCLAIMER,
@@ -594,7 +605,22 @@ export function runModel(assumptions: Assumptions, hooks?: RunHooks): ModelOutpu
     samplerComparison: { ...comparison, note: control ? `${comparison.note} ${control}` : comparison.note },
     provenance,
     mixes,
+    ...(kernelReport ? { kernelReport } : {}),
   };
+}
+
+function streamingPercentiles(values: number[]): ProgressSnapshot {
+  const sorted = values.slice().sort((a, b) => a - b);
+  const at = (p: number) => {
+    if (sorted.length === 0) return Number.NaN;
+    const position = (sorted.length - 1) * p;
+    const lo = Math.floor(position);
+    const hi = Math.ceil(position);
+    if (lo === hi) return sorted[lo];
+    const weight = position - lo;
+    return sorted[lo] * (1 - weight) + sorted[hi] * weight;
+  };
+  return { p5: at(0.05), p50: at(0.5), p95: at(0.95) };
 }
 
 function trialReserve(assumptions: Assumptions, schedule: { rates: { calendarYear: number }[] | null }, fixed: number | null): number {

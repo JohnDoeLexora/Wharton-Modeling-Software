@@ -52,6 +52,7 @@ function hydrateSleeve(raw: unknown, fallback: Sleeve): Sleeve {
     winsEligible: typeof source.winsEligible === "boolean" ? source.winsEligible : true,
     studentDf: finite(source.studentDf, 5),
     issuer: typeof source.issuer === "string" ? source.issuer : "",
+    ...(typeof source.targetYear === "number" && Number.isFinite(source.targetYear) ? { targetYear: source.targetYear } : {}),
   };
 }
 
@@ -217,6 +218,7 @@ export function migrateAssumptions(raw: unknown): Assumptions {
           : "untaxed",
     },
     mixes: Array.isArray(source.mixes) ? source.mixes.map(hydrateMix).filter((mix): mix is MixSpec => mix !== null) : [],
+    ...(source.kernel && typeof source.kernel === "object" ? { kernel: source.kernel } : {}),
     schemaVersion: 3,
     schema: 3,
   };

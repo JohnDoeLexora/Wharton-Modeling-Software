@@ -92,6 +92,48 @@ export interface Sleeve {
   studentDf: number;
   /** Issuer label for a credit sleeve. Empty for other kinds. */
   issuer: string;
+  /**
+   * Calendar year a target-maturity Treasury is assumed to mature.
+   * Ignored unless `kernel.targetMaturity` is on. MODEL_SPEC §7.6.
+   */
+  targetYear?: number;
+}
+
+/**
+ * Optional overlays on the canonical year-step kernel.
+ * Every flag defaults off. An absent object leaves the priced path unchanged.
+ * MODEL_SPEC §7.
+ */
+export interface KernelFlags {
+  /** Markov regime on the equity simple return. MODEL_SPEC §7.1. */
+  markovRegimes?: boolean;
+  /** 2 or 3 states. Default 2. */
+  states?: 2 | 3;
+  /** Row-stochastic transition. Default is in MODEL_SPEC §7.1. */
+  transition?: number[][];
+  /** Counts behind each row, for the multinomial standard error. */
+  transitionCount?: number[];
+  /** Equity simple-return drag by state. Default 0, −0.08, −0.18. */
+  stateDrag?: number[];
+  /** One chi-square scales the market factor and every basket residual. MODEL_SPEC §7.2. */
+  sharedStudent?: boolean;
+  /** Sector and USD/TWD shocks on the equity index. MODEL_SPEC §7.3. */
+  sectorFx?: boolean;
+  sectorSigma?: number;
+  fxSigma?: number;
+  /** Mean-reverting investment-grade spread. MODEL_SPEC §7.4. */
+  igSpread?: boolean;
+  igKappa?: number;
+  igTheta?: number;
+  igSigma?: number;
+  /** Default intensity rises when the equity factor is negative. MODEL_SPEC §7.5. */
+  issuerCredit?: boolean;
+  issuerBeta?: number;
+  /** Pull duration to zero at `sleeve.targetYear`. MODEL_SPEC §7.6. */
+  targetMaturity?: boolean;
+  /** Bin 2031 wealth before quoting the communication range. MODEL_SPEC §7.7. */
+  binnedRange?: boolean;
+  bins?: number;
 }
 
 export interface RateParams {
@@ -332,6 +374,11 @@ export interface Assumptions {
    */
   crashYear?: number | null;
   crashShock?: number;
+  /**
+   * Optional kernel overlays. Omitted means every overlay is off and the
+   * canonical year step is unchanged. MODEL_SPEC §7.
+   */
+  kernel?: KernelFlags;
 }
 
 export interface YearPoint {
@@ -698,4 +745,19 @@ export interface ModelOutput {
   provenance: ProvenanceStamp | null;
   /** Same seed and same streams as the main sample. Empty when no mixes are listed. */
   mixes: MixResult[];
+  /**
+   * Present only when a kernel overlay is on. It does not replace the canonical sample.
+   * MODEL_SPEC §7.
+   */
+  kernelReport?: KernelReport;
+}
+
+export interface KernelReport {
+  label: string;
+  flags: string[];
+  /** Multinomial standard error of each transition probability, when a count is supplied. */
+  transitionSe: (number | null)[][] | null;
+  /** Binned 2031 communication range. Null when that flag is off. */
+  binnedLow: number | null;
+  binnedHigh: number | null;
 }

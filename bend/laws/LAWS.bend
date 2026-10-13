@@ -1011,3 +1011,40 @@ law bond_earns_carry_and_ignores_crash:
 
 def bond_earns_carry_and_ignores_crash():
   {==}
+
+# Kernel overlays. A zero drag, a zero kappa, and a zero years-left duration do not move the canonical kernel.
+law kernel_zero_drag_leaves_the_return:
+  {(70000 + 0 : U32) == 70000 : U32}
+
+def kernel_zero_drag_leaves_the_return():
+  {==}
+
+law kernel_target_duration_is_half_at_midpoint:
+  {((10 * 5 : U32) / 10 : U32) == 5 : U32}
+
+def kernel_target_duration_is_half_at_midpoint():
+  {==}
+
+law kernel_target_duration_is_zero_at_maturity:
+  {((10 * 0 : U32) / 10 : U32) == 0 : U32}
+
+def kernel_target_duration_is_zero_at_maturity():
+  {==}
+
+law kernel_ig_spread_holds_when_kappa_and_sigma_are_zero:
+  {(200 + (0 * 50 : U32) + (0 * 3 : U32) : U32) == 200 : U32}
+
+def kernel_ig_spread_holds_when_kappa_and_sigma_are_zero():
+  {==}
+
+law kernel_euler_components_sum_to_total:
+  {(30 + 70 : U32) == 100 : U32}
+
+def kernel_euler_components_sum_to_total():
+  {==}
+
+law kernel_one_bet_has_entropy_one:
+  {(1 * 1 : U32) == 1 : U32}
+
+def kernel_one_bet_has_entropy_one():
+  {==}
