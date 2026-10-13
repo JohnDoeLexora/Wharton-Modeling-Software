@@ -30,6 +30,10 @@ describe("fixed-point golden vectors", () => {
     expect(Number(lines.mtm_dy_hi)).toBeLessThan(Number(lines.mtm_dy_lo));
     expect(lines.htm_marked).toBe(lines.htm_unmarked);
     expect(lines.bond_zero_dy).toBe("50000");
+    expect(lines.ewma_var).toBe("955000");
+    expect(lines.vasicek_beta).toBe("628000");
+    expect(lines.jump_var).toBe("18000");
+    expect(lines.cov_det).toBe("7729");
   });
 
   it("reproduces the Bend audit word and the other stream ids", () => {

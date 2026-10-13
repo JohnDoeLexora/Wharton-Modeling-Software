@@ -14,6 +14,20 @@ import { resolve } from "node:path";
 import { zeroAssumptions } from "../src/core/defaults.ts";
 import { goldenLines, parseGolden } from "../src/core/golden.ts";
 import { runModel } from "../src/core/run.ts";
+import {
+  ewmaVariance,
+  fitGarch,
+  goldenEwma,
+  goldenJumpVar,
+  goldenShrunkCov,
+  goldenVasicek,
+  kupiec,
+  ledoitWolf,
+  ols,
+  parityHits,
+  paritySeries,
+  vasicekBeta,
+} from "../src/core/risk/index.ts";
 
 const bend = spawnSync("bend", ["bend/main.bend"], { encoding: "utf8" });
 if (bend.status !== 0) {
@@ -85,6 +99,36 @@ writeFileSync(outPath, JSON.stringify(payload));
 console.log(
   `mc ts P(funded)=${payload.funded} p5=${payload.p5} p50=${payload.p50} se=${payload.se} trials=${payload.trials}`,
 );
+
+const series = paritySeries();
+const ewma = ewmaVariance(series.asset);
+const fit = ols(series.asset, [series.asset.map(() => 1), series.market]);
+const slopeSe = fit.cov ? Math.sqrt(Math.max(0, fit.cov[1][1])) : Number.NaN;
+const shrunkBeta = vasicekBeta(fit.coef[1], slopeSe, 1, 0.25);
+const garch = fitGarch(series.asset);
+const hits = parityHits();
+const kupiecTest = kupiec(hits.filter(Boolean).length, hits.length, 0.05);
+const shrink = ledoitWolf(series.asset.map((value, index) => [value, series.market[index]]));
+const cov = goldenShrunkCov();
+const riskPath = resolve("/tmp/gao-risk-golden.json");
+writeFileSync(
+  riskPath,
+  JSON.stringify({
+    ewma: goldenEwma(),
+    vasicek: goldenVasicek(),
+    jump: goldenJumpVar(),
+    covDet: cov.det,
+    series,
+    ewmaNext: ewma.next,
+    ols: { intercept: fit.coef[0], slope: fit.coef[1], se: slopeSe },
+    vasicekBeta: shrunkBeta.beta,
+    garch: { ok: garch.ok, alpha: garch.alpha, beta: garch.beta, omega: garch.omega, longRun: garch.longRun },
+    kupiec: { lr: kupiecTest.lr, pValue: kupiecTest.pValue, hits: kupiecTest.hits, n: kupiecTest.n },
+    shrinkage: shrink.shrinkage,
+    shrunk00: shrink.cov[0][0],
+  }),
+);
+console.log(`risk golden ewma=${goldenEwma()} vasicek=${goldenVasicek()} jump=${goldenJumpVar()} det=${cov.det}`);
 
 /** Annuity-due ladder at 1% using the same floor division as bend/fix.bend. */
 function ladderAtOnePercent(): number {

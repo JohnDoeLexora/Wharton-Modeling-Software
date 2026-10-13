@@ -7,6 +7,7 @@
 
 import { caseContribution, OPERATING_PAYMENT, OPERATING_PAYMENTS } from "./case";
 import { fanSummary } from "./fanMirror";
+import { goldenEwma, goldenJumpVar, goldenShrunkCov, goldenVasicek } from "./risk/fixed";
 import { rawWord } from "./rng";
 
 export const PPM = 1_000_000;
@@ -101,6 +102,7 @@ export function goldenLines(): GoldenLine[] {
   const bond = fillShares(20_000, 1_018, 1_000_000);
   const word = rawWord(42, 1, 0, 2027, 0);
   const fan = fanSummary(16);
+  const shrunk = goldenShrunkCov();
   const lines: [string, number][] = [
     ["cash_2027", caseContribution(2027)],
     ["cash_2028", caseContribution(2028)],
@@ -165,6 +167,10 @@ export function goldenLines(): GoldenLine[] {
     ["fan_mean", fan.mean],
     ["fan_min", fan.min],
     ["fan_max", fan.max],
+    ["ewma_var", goldenEwma()],
+    ["vasicek_beta", goldenVasicek()],
+    ["jump_var", goldenJumpVar()],
+    ["cov_det", shrunk.det],
   ];
   return lines.map(([key, value]) => ({ key, value: String(value) }));
 }

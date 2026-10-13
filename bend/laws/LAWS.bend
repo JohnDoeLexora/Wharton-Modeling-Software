@@ -17,6 +17,7 @@ import ../range.bend as Range
 import ../trades.bend as Trades
 import ../ns.bend as Ns
 import ../instruments.bend as Inst
+import ../risk.bend as Risk
 
 # Invariants of the Gao Bend engine.
 # Dollars are whole dollars. A weight of 1 is 1_000_000 ppm.
@@ -936,4 +937,52 @@ law etf_expense_drag_is_monotone:
   {Inst.expense_is_monotone() == True{} : Bool}
 
 def etf_expense_drag_is_monotone():
+  {==}
+
+law ewma_variance_is_positive:
+  {Risk.ewma_positive() == True{} : Bool}
+
+def ewma_variance_is_positive():
+  {==}
+
+law ewma_step_is_955000:
+  {Risk.golden_ewma() == 955000 : U32}
+
+def ewma_step_is_955000():
+  {==}
+
+law vasicek_beta_lies_between_raw_and_prior:
+  {Risk.vasicek_between() == True{} : Bool}
+
+def vasicek_beta_lies_between_raw_and_prior():
+  {==}
+
+law vasicek_beta_is_628000:
+  {Risk.golden_vasicek() == 628000 : U32}
+
+def vasicek_beta_is_628000():
+  {==}
+
+law jump_variance_covers_diffusion:
+  {Risk.jump_covers_diffusion() == True{} : Bool}
+
+def jump_variance_covers_diffusion():
+  {==}
+
+law jump_variance_is_18000:
+  {Risk.golden_jump() == 18000 : U32}
+
+def jump_variance_is_18000():
+  {==}
+
+law shrunk_covariance_is_positive_semidefinite:
+  {Risk.cov_psd() == True{} : Bool}
+
+def shrunk_covariance_is_positive_semidefinite():
+  {==}
+
+law shrunk_covariance_det_is_7729:
+  {Risk.golden_det() == 7729 : U32}
+
+def shrunk_covariance_det_is_7729():
   {==}

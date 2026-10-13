@@ -18,6 +18,7 @@ import ./trades.bend as Trades
 import ./ns.bend as Ns
 import ./instruments.bend as Inst
 import ./fan.bend as Fan
+import ./risk.bend as Risk
 
 # Deterministic case table. Returns, fees, and the glide are inputs.
 # This run uses the zero-return, zero-fee path and the flat half / half
@@ -142,3 +143,7 @@ def main() -> IO(Unit):
     IO.print("target_one_year " ++ U32.show(Inst.target_one_year(10000, 40000)))
     IO.print("fan_trial0 " ++ U32.show(Fan.one_trial(0)))
     IO.print(Fan.show_fan())
+    IO.print("ewma_var " ++ U32.show(Risk.golden_ewma()))
+    IO.print("vasicek_beta " ++ U32.show(Risk.golden_vasicek()))
+    IO.print("jump_var " ++ U32.show(Risk.golden_jump()))
+    IO.print("cov_det " ++ U32.show(Risk.golden_det()))

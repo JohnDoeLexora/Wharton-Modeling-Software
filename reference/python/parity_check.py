@@ -182,6 +182,63 @@ def main() -> None:
         if abs(py - ts) > band:
             fail(f"{label} python {py} ts {ts} band {band}")
     print(f"python agrees: P(funded)={funded:.4f} p5={p5:.2f} p50={p50:.2f} se={se:.4f}")
+    check_risk()
+
+
+def check_risk() -> None:
+    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+    import risk
+
+    if risk.ewma_step_ppm(940_000, 1_000_000, 250_000) != 955_000:
+        fail("ewma step")
+    if risk.vasicek_ppm(70_000, 1_000_000, 40_000, 60_000) != 628_000:
+        fail("vasicek step")
+    if not 70_000 <= 628_000 <= 1_000_000:
+        fail("vasicek range")
+    if risk.jump_variance_ppm(8_000, 4, 2_500) != 18_000:
+        fail("jump variance")
+    if risk.jump_variance_ppm(8_000, 4, 2_500) < 8_000:
+        fail("jump variance below diffusion")
+    cov = risk.shrunk_cov()
+    if cov["det"] != 7729 or cov["s11"] <= 0 or cov["det"] <= 0:
+        fail(f"shrunk covariance {cov}")
+
+    payload_path = pathlib.Path("/tmp/gao-risk-golden.json")
+    if not payload_path.exists():
+        fail("missing /tmp/gao-risk-golden.json — run scripts/parity.ts first")
+    payload = json.loads(payload_path.read_text())
+    asset = [float(value) for value in payload["series"]["asset"]]
+    market = [float(value) for value in payload["series"]["market"]]
+    if abs(risk.ewma_next(asset) - float(payload["ewmaNext"])) > 1e-12:
+        fail(f"ewma next {risk.ewma_next(asset)} ts {payload['ewmaNext']}")
+    intercept, slope, se = risk.ols_intercept(asset, market)
+    if abs(intercept - float(payload["ols"]["intercept"])) > 1e-9 or abs(slope - float(payload["ols"]["slope"])) > 1e-9:
+        fail(f"ols {intercept} {slope}")
+    if abs(se - float(payload["ols"]["se"])) > 1e-9:
+        fail(f"ols se {se}")
+    beta = risk.vasicek_beta(slope, se, 1.0, 0.25)
+    if abs(beta - float(payload["vasicekBeta"])) > 1e-12:
+        fail(f"vasicek beta {beta}")
+    garch = risk.fit_garch(asset)
+    if not garch["ok"]:
+        fail("garch did not fit")
+    if abs(float(garch["alpha"]) - float(payload["garch"]["alpha"])) > 0.02:
+        fail(f"garch alpha {garch['alpha']} ts {payload['garch']['alpha']}")
+    if abs(float(garch["beta"]) - float(payload["garch"]["beta"])) > 0.02:
+        fail(f"garch beta {garch['beta']} ts {payload['garch']['beta']}")
+    if garch["alpha"] == payload["garch"]["alpha"] and garch["beta"] == payload["garch"]["beta"]:
+        if abs(float(garch["omega"]) - float(payload["garch"]["omega"])) > 1e-8:
+            fail(f"garch omega {garch['omega']}")
+    lr, p_value = risk.kupiec(int(payload["kupiec"]["hits"]), int(payload["kupiec"]["n"]), 0.05)
+    if abs(lr - float(payload["kupiec"]["lr"])) > 1e-9 or abs(p_value - float(payload["kupiec"]["pValue"])) > 1e-9:
+        fail(f"kupiec {lr} {p_value}")
+    shrinkage, shrunk = risk.ledoit_wolf([[left, right] for left, right in zip(asset, market)])
+    if abs(shrinkage - float(payload["shrinkage"])) > 1e-8 or abs(shrunk[0][0] - float(payload["shrunk00"])) > 1e-8:
+        fail(f"ledoit-wolf {shrinkage} {shrunk[0][0]}")
+    print(
+        f"risk parity agrees: ewma {payload['ewma']} vasicek {payload['vasicek']} "
+        f"jump {payload['jump']} det {payload['covDet']} garch {garch['alpha']}/{garch['beta']}"
+    )
 
 
 if __name__ == "__main__":

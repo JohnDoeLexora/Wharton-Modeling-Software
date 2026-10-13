@@ -24,6 +24,7 @@ for f in \
   bend/ns.bend \
   bend/instruments.bend \
   bend/fan.bend \
+  bend/risk.bend \
   bend/main.bend
 do
   bend --check-only "$f"
